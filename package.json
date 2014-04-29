@@ -1,0 +1,31 @@
+{
+  "name": "nstorm",
+  "version": "0.0.2",
+  "description": "Node.js real-time processing engine, based on Twitter's Storm",
+  "main": "index.js",
+  "dependencies": {
+    "arsenic-logger": "~0.2.9",
+    "redis": "x",
+    "hiredis": "x",
+    "redis-eventemitter": "x"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/ArsenicSoup/nStorm.git"
+  },
+  "keywords": [
+    "Storm",
+    "real-time",
+    "processing"
+  ],
+  "author": "Mike Pritchard",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ArsenicSoup/nStorm/issues"
+  },
+  "homepage": "https://github.com/ArsenicSoup/nStorm"
+}
