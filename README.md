@@ -177,5 +177,6 @@ Coming soon.
 
 ### TODO 
 
-1. Message replay count so messages are only replayed a certain number of times to prevent thrashing
+1. Message replay count so messages are only replayed a certain number of times to prevent thrashing.
+2. Pass replay timeout when add a block (defaults to 1 second).
 
