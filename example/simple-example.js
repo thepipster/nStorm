@@ -53,15 +53,15 @@ function HeadsBolt() {
 
 }
 
-var builder = new TopologyBuilder();
-
 // Spout and Bolt implementation
 var coinTossSpout = new CoinSpout();
 var headsBolt = new HeadsBolt();
 
-// Setting up topology using the topology builder
-builder.setSpout("coindTossSpout", coinTossSpout);
-builder.setBolt("headsBolt", headsBolt).input("coindTossSpout");
+var cloud = new nStorm();
 
-var cluster = new LocalCluster();
-cluster.submitTopology("test", {}, builder.createTopology());
+// Setting up topology using the topology builder
+cloud.addBlock("coindTossSpout", coinTossSpout);
+cloud.addBlock("headsBolt", headsBolt).input("coindTossSpout");
+
+// Setup cluster, and run topology...
+cloud.start();

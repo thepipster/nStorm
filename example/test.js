@@ -7,39 +7,25 @@ var headsBolt = new HeadsBolt();
 var tailsBolt = new TailsBolt();
 var resultsBolt = new ResultsBolt();
 
-var builder = new TopologyBuilder();
+var cloud = new nStorm();
 
 // Setting up topology using the topology builder
-nStorm.setSpout("coindTossSpout", coinTossSpout);
-nStorm.setBolt("tailsBolt", tailsBolt, 1).input("coindTossSpout", {coin: "tails"});
-nStorm.setBolt("headsBolt", headsBolt, 1).input("coindTossSpout", {coin: "heads"});
-nStorm.setBolt("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
+cloud.addBlock("coindTossSpout", coinTossSpout);
+cloud.addBlock("tailsBolt", tailsBolt, 1).input("coindTossSpout", {coin: "tails"});
+cloud.addBlock("headsBolt", headsBolt, 1).input("coindTossSpout", {coin: "heads"});
+cloud.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
 
 // Setup cluster, and run topology...
-
-var cluster = new LocalCluster();
-
-var clusterConfig = {
-    debug: true,
-    numWorkers: 2
-}
-
-//var topo = builder.createTopology();
-
-cluster.submitTopology("test", clusterConfig, builder.createTopology());
-
-// Give it 10 seconds, then kill
-//setTimeout(function(){
-//    cluster.killTopology("test");
-//    cluster.shutdown();
-//}, 10000);
-
+cloud.start();
 
 
 /**
  * Demo spout that generates random data
  */
 function CoinSpout() {
+
+    var test = 56;
+    this.temp = 47;
 
     this.start = function(context) {
 
@@ -65,7 +51,7 @@ function CoinSpout() {
             }
 
             setTimeout(function(){
-                sendData();
+                //sendData();
             }, 60000);
 
         }
