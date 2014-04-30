@@ -1,6 +1,5 @@
 var Logger = require('arsenic-logger');
 var nStorm = require('../index.js');
-var builder = new TopologyBuilder();
 
 /**
  * Demo spout that generates random data
@@ -53,6 +52,8 @@ function HeadsBolt() {
     }
 
 }
+
+var builder = new TopologyBuilder();
 
 // Spout and Bolt implementation
 var coinTossSpout = new CoinSpout();
