@@ -135,6 +135,20 @@ cloud.addBlock("headsBolt", headsBolt).input("coindTossSpout");
 cloud.start();
 ```
 
+### nStorm Options
+
+When you create a nStorm cloud using `var cloud = new nStorm(<options>);` you can pass in the following options;
+
+Option | Default | Description
+--- | --- | ---
+userCluser | true | Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
+redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
+debug | false | Turns on logging 
+replay | true | Globally turns off replaying messages
+replayLimit | 3 | The number of times a message is replayed before its considered bad and deleted, i.e. if the same message causes an exception 3 times stop replaying the message!
+replayTime | 300 | Time (ms) between checking for failed messages
+
+
 #### Parallelism
 
 By default, every time a block gets a message its processing method is called. However, you can restrict the number of instances *per worker* by specifying a limit, e.g.
@@ -169,16 +183,27 @@ Here the 'headsBolt' will reject any messages that do not have a "coin" key whic
 
 ### Adding remote workers
 
-Coming soon.
+This is in the works, but because the system is built on top of redis this should be basically already possible......
 
 ### Monitoring
 
-Coming soon.
+A web based graphical monitor is in the works, and coming soon. Feel free to bug me if you'd like to see an early version.
 
-### TODO 
+## Suggestions
 
-1. Message replay count so messages are only replayed a certain number of times to prevent thrashing.
-2. Pass replay timeout when add a block (defaults to 1 second).
+Feel free to contact me at mike@arsenicsoup.com if you want to help or have suggestions.
+
+## Contribution
+
+Contributions are welcome!
+
+Please feel free to [file issues](https://github.com/thepipster/nStorm/issues) and submit [pull requests](https://github.com/thepipster/nStorm/pulls).
+
+## Donate
+
+If you like this, and use it, please consider donating to help support future development.
+
+<a class="coinbase-button" data-code="1f955f58582ddd191e84a8bb8fcd7a77" data-button-style="donation_small" href="https://coinbase.com/checkouts/1f955f58582ddd191e84a8bb8fcd7a77">Donate Bitcoins</a><script src="https://coinbase.com/assets/button.js" type="text/javascript"></script>
 
 ## License
 

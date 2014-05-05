@@ -7,7 +7,7 @@ var headsBolt = new HeadsBolt();
 var tailsBolt = new TailsBolt();
 var resultsBolt = new ResultsBolt();
 
-var cloud = new nStorm();
+var cloud = new nStorm({debug:true});
 
 // Setting up topology using the topology builder
 cloud.addBlock("coindTossSpout", coinTossSpout);
@@ -51,8 +51,8 @@ function CoinSpout() {
             }
 
             setTimeout(function(){
-                //sendData();
-            }, 60000);
+                sendData();
+            }, 10000);
 
         }
 
@@ -99,6 +99,14 @@ function ResultsBolt() {
     this.process = function(message, context) {
 
         Logger.info("Results Message ", message.coin);
+
+        // Randomly throw an expection
+        var test = getRandomInt(0,100);
+
+        if (test < 33){
+            throw new Error("Test error!!!");
+            return;
+        }
 
         // Acknowledge
         context.ack(message);
