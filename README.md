@@ -141,7 +141,7 @@ When you create a nStorm cloud using `var cloud = new nStorm(<options>);` you ca
 
 Option | Default | Description
 --- | --- | ---
-userCluser | true | Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
+useCluster | true | Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
 redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
 debug | false | Turns on logging 
 replay | true | Globally turns off replaying messages
