@@ -7,7 +7,7 @@ var headsBolt = new HeadsBolt();
 var tailsBolt = new TailsBolt();
 var resultsBolt = new ResultsBolt();
 
-var cloud = new nStorm({debug:true});
+var cloud = new nStorm({useCluster:false, debug:false});
 
 // Setting up topology using the topology builder
 cloud.addBlock("coindTossSpout", coinTossSpout);
