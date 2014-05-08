@@ -52,7 +52,7 @@ function CoinSpout() {
 
             setTimeout(function(){
                 sendData();
-            }, 10000);
+            }, 1000);
 
         }
 
@@ -66,7 +66,6 @@ function HeadsBolt() {
     this.process = function(message, context) {
 
         Logger.info("Heads ", message.coin);
-
 
         // Acknowledge
         context.ack(message);
@@ -98,7 +97,7 @@ function ResultsBolt() {
 
     this.process = function(message, context) {
 
-        Logger.info("Results Message ", message.coin);
+  //      Logger.info("Results Message ", message.coin);
 
         // Randomly throw an expection
         var test = getRandomInt(0,100);
