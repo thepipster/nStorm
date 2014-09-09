@@ -1,6 +1,6 @@
 {
   "name": "nstorm",
-  "version": "0.0.12",
+  "version": "0.1.0",
   "description": "Node.js real-time processing engine, based on Twitter's Storm",
   "main": "index.js",
   "directories": {
@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "hiredis": "~0.1.16",
-    "arsenic-logger": "~0.2.9",
+    "arsenic-logger": ">= 0.3.1",
     "lodash": "~2.4.1",
     "mongodb": "~1.4.2",
     "redis": "~0.10.1",
