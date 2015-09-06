@@ -7,16 +7,20 @@ var headsBolt = new HeadsBolt();
 var tailsBolt = new TailsBolt();
 var resultsBolt = new ResultsBolt();
 
-var cloud = new nStorm({useCluster:false, debug:false});
+var cloud = new nStorm({debug:false}, function(){
 
-// Setting up topology using the topology builder
-cloud.addBlock("coindTossSpout", coinTossSpout);
-cloud.addBlock("tailsBolt", tailsBolt, 1).input("coindTossSpout", {coin: "tails"});
-cloud.addBlock("headsBolt", headsBolt, 1).input("coindTossSpout", {coin: "heads"});
-cloud.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
+    // Setting up topology using the topology builder
+    cloud.addBlock("coindTossSpout", coinTossSpout);
 
-// Setup cluster, and run topology...
-cloud.start();
+    cloud.addBlock("tailsBolt", tailsBolt, 1).input("coindTossSpout", {keys:{coin: "tails"}});
+    cloud.addBlock("headsBolt", headsBolt, 1).input("coindTossSpout", {keys:{coin: "heads"}});
+    cloud.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
+
+    // Setup cluster, and run topology...
+    //cloud.start();
+
+});
+
 
 
 /**
