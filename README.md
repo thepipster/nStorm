@@ -150,6 +150,7 @@ Option | Default | Description
 cloudName | "stormcloud" | Specify the topology name, used if you plan to run more than one topology.
 useCluster | true | Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
 redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
+reset | false | Reset the redis message queue when starting up
 debug | false | Turns on logging
 replay | true | Globally turns off replaying messages
 replayLimit | 3 | The number of times a message is replayed before its considered bad and deleted, i.e. if the same message causes an exception 3 times stop replaying the message!
