@@ -11,7 +11,7 @@ function CoinSpout() {
         sendData();
 
         function sendData(){
-            
+
             var test = Math.floor(Math.random() * 101);
 
             var toss = 'tails';
@@ -57,7 +57,14 @@ function HeadsBolt() {
 var coinTossSpout = new CoinSpout();
 var headsBolt = new HeadsBolt();
 
-var cloud = new nStorm();
+var cloud = new nStorm({
+	debug: false,
+	redis: {
+			port: 6379,
+			host: '127.0.0.1',
+			prefix: 'nstorm-pubsub:'
+		}
+});
 
 // Setting up topology using the topology builder
 cloud.addBlock("coindTossSpout", coinTossSpout);

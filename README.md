@@ -25,7 +25,7 @@ npm install nstorm
 
 ## Usage
 
-Include nStorm by 
+Include nStorm by
 
 ```js
 var nStorm = require('nstorm');
@@ -42,7 +42,7 @@ The `start` method can be used to emit data, i.e. a data source, or can be used 
 
 ### Creating a Data source
 
-Data source blocks are fairly easy to create, the only restriction is that the block must contain a `start(context)` function. To output any messages, call the `emit(data)` function of the `context` object passed into the start function. 
+Data source blocks are fairly easy to create, the only restriction is that the block must contain a `start(context)` function. To output any messages, call the `emit(data)` function of the `context` object passed into the start function.
 
 The data you pass should be an Array or Object.
 
@@ -59,7 +59,7 @@ function CoinSpout() {
         sendData();
 
         function sendData(){
-            
+
             var test = Math.floor(Math.random() * 101);
 
             var toss = 'tails';
@@ -89,7 +89,7 @@ function CoinSpout() {
 
 Creating a processing block is also pretty straight forward. The only restriction is that they must contain a process function. This function is passed a message and the context oject. The message will be whatever data was emitted by a block that this block is connected to. So for example, if this was listening to the spout we just created then the message would be the result of the coin toss.
 
-The `context` object contains two functions, an `emit()` which allows you to pass data to other blocks. And a `ack(message)`. This is important, the block must call ack on the message otherwise this message will be replayed (sent back to this block)! 
+The `context` object contains two functions, an `emit()` which allows you to pass data to other blocks. And a `ack(message)`. This is important, the block must call ack on the message otherwise this message will be replayed (sent back to this block)!
 
 ```js
 function HeadsBolt() {
@@ -112,13 +112,19 @@ function HeadsBolt() {
 
 ### Setting up a toplogy
 
-Once you have created your blocks, now you can wire them up! 
+Once you have created your blocks, now you can wire them up!
 
 Here is an example based on the bolt and spout we just created
 
 ```js
 var Logger = require('arsenic-logger');
-var nStorm = require('nstorm');
+var cloud = new nStorm({
+	redis: {
+			port: 6379,
+			host: '127.0.0.1',
+			prefix: 'nstorm-pubsub:'
+		}
+});
 
 // Spout and Bolt implementation
 var coinTossSpout = new CoinSpout();
@@ -144,7 +150,7 @@ Option | Default | Description
 cloudName | "stormcloud" | Specify the topology name, used if you plan to run more than one topology.
 useCluster | true | Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
 redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
-debug | false | Turns on logging 
+debug | false | Turns on logging
 replay | true | Globally turns off replaying messages
 replayLimit | 3 | The number of times a message is replayed before its considered bad and deleted, i.e. if the same message causes an exception 3 times stop replaying the message!
 replayTime | 300 | Time (ms) between checking for failed messages
@@ -229,4 +235,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
