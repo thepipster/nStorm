@@ -66,18 +66,18 @@ class TailsBolt extends BaseBolt {
 
         Logger.info("Tails ", message.coin);
 
-        // Acknowledge
-        context.ack(message);
-
         // Pass data along
-        context.emit(message);
+        this.emit(message);
+
+        // Acknowledge
+        done()
     }
 
 }
 
 class ResultsBolt extends BaseBolt {
 
-    process(message, context) {
+    process(message, done) {
 
   //      Logger.info("Results Message ", message.coin);
 
@@ -89,11 +89,13 @@ class ResultsBolt extends BaseBolt {
             return;
         }
 
-        // Acknowledge
-        context.ack(message);
-
         // Pass data along
-        context.emit(message);
+        this.emit(message);
+
+        // Acknowledge
+        done()
+
+        
     }
 
 }
@@ -110,7 +112,7 @@ var cloud = new nStorm({useCluster:false, debug:false});
 
 // Setting up topology using the topology builder
 cloud.addBlock("coindTossSpout", coinTossSpout);
-//cloud.addBlock("tailsBolt", tailsBolt, 1).input("coindTossSpout", {coin: "tails"});
+cloud.addBlock("tailsBolt", tailsBolt, 1).input("coindTossSpout", {filter:{coin: "tails"}});
 //cloud.addBlock("headsBolt", headsBolt, 1).input("coindTossSpout", {coin: "heads"});
 //cloud.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
 
