@@ -1,37 +1,31 @@
 {
   "name": "nstorm",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "Node.js real-time processing engine, based on Twitter's Storm",
   "main": "index.js",
   "directories": {
-    "example": "example"
+    "example": "example",
+    "lib": "lib"
   },
-  "dependencies": {
-    "hiredis": "*",
-    "arsenic-logger": "*",
-    "lodash": "*",
-    "mongodb": "*",
-    "redis": "*",
-    "redis-eventemitter": "*",
-    "async": "*"
-  },
-  "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm test"
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/thepipster/nStorm.git"
+    "url": "git+https://github.com/thepipster/nStorm.git"
   },
-  "keywords": [
-    "Storm",
-    "real-time",
-    "processing"
-  ],
-  "author": "Mike Pritchard <mike@arsenicsoup.com> (http://arsenicsoup.com/)",
-  "license": "MIT",
+  "author": "Mike Pritchard",
+  "license": "ISC",
   "bugs": {
     "url": "https://github.com/thepipster/nStorm/issues"
   },
-  "homepage": "https://github.com/thepipster/nStorm"
+  "homepage": "https://github.com/thepipster/nStorm#readme",
+  "dependencies": {
+    "async": "^2.6.1",
+    "callsite": "^1.0.0",
+    "chalk": "^2.4.1",
+    "lodash": "^4.17.10",
+    "moment": "^2.22.1",
+    "winston": "^3.0.0-rc5"
+  }
 }
