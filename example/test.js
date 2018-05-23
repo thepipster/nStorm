@@ -19,7 +19,7 @@ class CoinSpout extends BaseBolt {
 
         Logger.info("Starting...");
 
-        for (var i=0; i<10; i++){
+        for (var i=0; i<200; i++){
 
             var test = getRandomInt(0,100);
 
@@ -30,7 +30,7 @@ class CoinSpout extends BaseBolt {
 
             var row = {coin: toss, time: Date.now()}
 
-            Logger.debug("Emitting", row);
+            //Logger.debug("Emitting", row);
 
             this.emit(row);
 
@@ -62,12 +62,12 @@ class HeadsBolt extends BaseBolt {
 
 class TailsBolt extends BaseBolt {
 
-    process(message, context) {
+    process(message, done) {
 
-        Logger.info("Tails ", message.coin);
+        Logger.info("Tails >>>> ", message.coin);
 
         // Pass data along
-        this.emit(message);
+        //this.emit(message);
 
         // Acknowledge
         done()
