@@ -26,7 +26,7 @@ class CoinSpout extends BaseBolt {
 
         Logger.info("Starting...");
 
-        for (var i=0; i<10; i++){
+        for (var i=0; i<1000; i++){
 
             var test = getRandomInt(0,100);
 
@@ -39,7 +39,7 @@ class CoinSpout extends BaseBolt {
 
             //Logger.debug("Emitting", row);
 
-            await this.delay(1000)
+            //await this.delay(3000)
 
             this.emit(row);
             
@@ -57,7 +57,7 @@ class HeadsBolt extends BaseBolt {
     process(message, done) {
 
         message.deltaHeads = Date.now() - message.time
-        Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}`);
+        //Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}`);
 
         // Pass data along
         this.emit(message);
@@ -74,7 +74,7 @@ class TailsBolt extends BaseBolt {
     process(message, done) {
 
         message.deltaTails = Date.now() - message.time
-        Logger.info(`Tails >>>>> ${message.coin} - message.count = ${message.count}`);
+        //Logger.info(`Tails >>>>> ${message.coin} - message.count = ${message.count}`);
 
         // Pass data along
         this.emit(message);
@@ -103,8 +103,8 @@ class ResultsBolt extends BaseBolt {
         var test = getRandomInt(0,100);
 
         if (test < 33){
-            throw new Error("Test error!!!");
-            return;
+          //  throw new Error("Test error!!!");
+        //    return;
         }
 
         // Pass data along
@@ -130,9 +130,9 @@ var cloud = new nStorm({useCluster:false, debug:false});
 
 // Setting up topology using the topology builder
 cloud.addBlock("coindTossSpout", coinTossSpout);
-cloud.addBlock("tailsBolt", tailsBolt, 1).input("coindTossSpout", {filter:{coin: "tails"}});
-cloud.addBlock("headsBolt", headsBolt, 1).input("coindTossSpout", {filter:{coin: "heads"}});
-cloud.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
+cloud.addBlock("tailsBolt", tailsBolt, 3).input("coindTossSpout", {filter:{coin: "tails"}});
+cloud.addBlock("headsBolt", headsBolt, 3).input("coindTossSpout", {filter:{coin: "heads"}});
+cloud.addBlock("resultsBolt", resultsBolt, 6).input("tailsBolt").input("headsBolt");
 
 // Setup cluster, and run topology...
 cloud.start();
