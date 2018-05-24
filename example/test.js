@@ -2,12 +2,19 @@ var Logger = require('../index.js').Logger
 var nStorm = require('../index.js').nStorm
 var BaseBolt = require('../index.js').BaseBolt
 
+const startTime = new Date()
+
 /**
  * Returns a random integer between min and max
  * Using Math.round() will give you a non-uniform distribution!
  */
 function getRandomInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function getDelta(){
+    //return Math.round( ( (new Date()) - startTime) / 1000)
+    return (new Date()) - startTime
 }
 
 /**
@@ -19,7 +26,7 @@ class CoinSpout extends BaseBolt {
 
         Logger.info("Starting...");
 
-        for (var i=0; i<200; i++){
+        for (var i=0; i<10; i++){
 
             var test = getRandomInt(0,100);
 
@@ -28,13 +35,14 @@ class CoinSpout extends BaseBolt {
                 toss = 'heads';
             }
 
-            var row = {coin: toss, time: Date.now()}
+            var row = {coin: toss, count: i, time: Date.now(), deltaSpout: getDelta()}
 
             //Logger.debug("Emitting", row);
 
-            this.emit(row);
-
             await this.delay(1000)
+
+            this.emit(row);
+            
         }
 
         return
@@ -46,15 +54,16 @@ class CoinSpout extends BaseBolt {
 
 class HeadsBolt extends BaseBolt {
 
-    process(message, context) {
+    process(message, done) {
 
-        Logger.info("Heads ", message.coin);
-
-        // Acknowledge
-        context.ack(message);
+        message.deltaHeads = Date.now() - message.time
+        Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}`);
 
         // Pass data along
-        context.emit(message);
+        this.emit(message);
+
+        // Acknowledge
+        done()
 
     }
 
@@ -64,10 +73,11 @@ class TailsBolt extends BaseBolt {
 
     process(message, done) {
 
-        Logger.info("Tails >>>> ", message.coin);
+        message.deltaTails = Date.now() - message.time
+        Logger.info(`Tails >>>>> ${message.coin} - message.count = ${message.count}`);
 
         // Pass data along
-        //this.emit(message);
+        this.emit(message);
 
         // Acknowledge
         done()
@@ -77,9 +87,17 @@ class TailsBolt extends BaseBolt {
 
 class ResultsBolt extends BaseBolt {
 
+    constructor() {   
+        super()
+        this.count = 0
+    }
+
     process(message, done) {
 
-  //      Logger.info("Results Message ", message.coin);
+        message.deltaResults = Date.now() - message.time
+
+        this.count++
+        Logger.info(`Results >>>>> ${this.count} coins - message.count = ${message.count}`, message);
 
         // Randomly throw an expection
         var test = getRandomInt(0,100);
@@ -113,8 +131,8 @@ var cloud = new nStorm({useCluster:false, debug:false});
 // Setting up topology using the topology builder
 cloud.addBlock("coindTossSpout", coinTossSpout);
 cloud.addBlock("tailsBolt", tailsBolt, 1).input("coindTossSpout", {filter:{coin: "tails"}});
-//cloud.addBlock("headsBolt", headsBolt, 1).input("coindTossSpout", {coin: "heads"});
-//cloud.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
+cloud.addBlock("headsBolt", headsBolt, 1).input("coindTossSpout", {filter:{coin: "heads"}});
+cloud.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
 
 // Setup cluster, and run topology...
 cloud.start();
