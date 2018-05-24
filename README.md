@@ -42,7 +42,7 @@ The `start` method can be used to emit data, i.e. a data source, or can be used 
 
 ### Creating a Data source
 
-Data source blocks are fairly easy to create, the only restriction is that the block must contain a `start(context)` function. To output any messages, call the `emit(data)` function of the `context` object passed into the start function.
+Data source blocks are fairly easy to create, using the `BaseBolt` base class. The only restriction is that the block must contain a `start()` function that returns a promise. To output any messages, call the `this.emit(data)`.
 
 The data you pass should be an Array or Object.
 
@@ -50,34 +50,36 @@ The following block demonstrates a coin toss, it randomly 'emits' a head or a ta
 
 ```js
 /**
- * Demo spout that generates random data
+ * Demo spout that randomly creates 'coins', either heads or tails
  */
-function CoinSpout() {
+class CoinSpout extends BaseBolt {
 
-    this.start = function(context) {
+    async start() {
 
-        sendData();
+        Logger.info("Starting...");
 
-        function sendData(){
+        for (var i=0; i<1000; i++){
 
-            var test = Math.floor(Math.random() * 101);
+            var test = getRandomInt(0,100);
 
             var toss = 'tails';
             if (test < 50){
                 toss = 'heads';
             }
 
-            var row = {coin: toss, time: Date.now()}
+            var row = {coin: toss, count: i, time: Date.now(), deltaSpout: getDelta()}
 
-            // 'Emit' the data, which is passed to any blocks listening to
-            // (subscribed) to this blocks messages
-            context.emit(row);
+            Logger.debug("Emitting", row);
 
-            setTimeout(function(){
-                sendData();
-            }, 1000);
+            // Use the utility delay function to wait 3 seconds
+            await this.delay(3000)
 
+            // Send the data to any block that is consuming it
+            this.emit(row);
+            
         }
+
+        return
 
     }
 
@@ -87,23 +89,23 @@ function CoinSpout() {
 
 ### Creating a Process Block
 
-Creating a processing block is also pretty straight forward. The only restriction is that they must contain a process function. This function is passed a message and the context oject. The message will be whatever data was emitted by a block that this block is connected to. So for example, if this was listening to the spout we just created then the message would be the result of the coin toss.
+Creating a processing block is also pretty straight forward, and also extends from the `BaseBolt` class. The only restriction is that they must contain a `process` function. This function is passed a message and a `done` function that is called when the message has been processed. The message will be whatever data was emitted by a block that this block is connected to. So for example, if this was listening to the spout we just created then the message would be the result of the coin toss.
 
-The `context` object contains two functions, an `emit()` which allows you to pass data to other blocks. And a `ack(message)`. This is important, the block must call ack on the message otherwise this message will be replayed (sent back to this block)!
+The block can also send data using the `this.emit()` function, which allows you to pass data to other blocks. 
 
 ```js
-function HeadsBolt() {
+class HeadsBolt extends BaseBolt {
 
-    this.process = function(message, context) {
+    process(message, done) {
 
-        Logger.info("Heads ", message.coin);
-
-
-        // Acknowledge
-        context.ack(message);
+        message.deltaHeads = Date.now() - message.time
+        //Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}`);
 
         // Pass data along
-        context.emit(message);
+        this.emit(message);
+
+        // Acknowledge
+        done()
 
     }
 
@@ -117,7 +119,10 @@ Once you have created your blocks, now you can wire them up!
 Here is an example based on the bolt and spout we just created
 
 ```js
-var Logger = require('arsenic-logger');
+const Logger = require('nstorm').Logger
+const nStorm = require('nstorm').nStorm
+const BaseBolt = require('nstorm').BaseBolt
+
 var cloud = new nStorm({
 	redis: {
 			port: 6379,
@@ -127,18 +132,18 @@ var cloud = new nStorm({
 });
 
 // Spout and Bolt implementation
-var coinTossSpout = new CoinSpout();
-var headsBolt = new HeadsBolt();
+var coinTossSpout = new CoinSpout()
+var headsBolt = new HeadsBolt()
 
 // Setting up topology using the topology builder
-var cloud = new nStorm();
+var cloud = new nStorm()
 
 // Setting up topology using the topology builder
-cloud.addBlock("coindTossSpout", coinTossSpout);
-cloud.addBlock("headsBolt", headsBolt).input("coindTossSpout");
+cloud.addBlock("coindTossSpout", coinTossSpout)
+cloud.addBlock("headsBolt", headsBolt).input("coindTossSpout")
 
 // Setup cluster, and run topology...
-cloud.start();
+cloud.start()
 ```
 
 ### nStorm Options
@@ -148,11 +153,10 @@ When you create a nStorm cloud using `var cloud = new nStorm(<options>);` you ca
 Option | Default | Description
 --- | --- | ---
 cloudName | "stormcloud" | Specify the topology name, used if you plan to run more than one topology.
-useCluster | true | Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
+useCluster | true | (experimental) Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
 redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
 reset | false | Reset the redis message queue when starting up
 debug | false | Turns on logging
-replay | true | Globally turns off replaying messages
 replayLimit | 3 | The number of times a message is replayed before its considered bad and deleted, i.e. if the same message causes an exception 3 times stop replaying the message!
 replayTime | 300 | Time (ms) between checking for failed messages
 

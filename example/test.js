@@ -18,7 +18,7 @@ function getDelta(){
 }
 
 /**
- * Demo spout that generates random data
+ * Demo spout that randomly creates 'coins', either heads or tails
  */
 class CoinSpout extends BaseBolt {
 
