@@ -26,7 +26,7 @@ class CoinSpout extends BaseBolt {
 
         Logger.info("Starting...");
 
-        for (var i=0; i<1000; i++){
+        for (var i=0; i<10; i++){
 
             var test = getRandomInt(0,100);
 
@@ -54,13 +54,15 @@ class CoinSpout extends BaseBolt {
 
 class HeadsBolt extends BaseBolt {
 
-    process(message, done) {
+    async process(message, done) {
 
         message.deltaHeads = Date.now() - message.time
-        //Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}`);
+        Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}. Delta = ${message.deltaHeads}`);
 
         // Pass data along
         this.emit(message);
+
+        await this.delay(10000)
 
         // Acknowledge
         done()
@@ -71,7 +73,7 @@ class HeadsBolt extends BaseBolt {
 
 class TailsBolt extends BaseBolt {
 
-    process(message, done) {
+    async process(message, done) {
 
         message.deltaTails = Date.now() - message.time
         //Logger.info(`Tails >>>>> ${message.coin} - message.count = ${message.count}`);
@@ -130,9 +132,9 @@ var cloud = new nStorm({useCluster:false, debug:false});
 
 // Setting up topology using the topology builder
 cloud.addBlock("coindTossSpout", coinTossSpout);
-cloud.addBlock("tailsBolt", tailsBolt, 3).input("coindTossSpout", {filter:{coin: "tails"}});
-cloud.addBlock("headsBolt", headsBolt, 3).input("coindTossSpout", {filter:{coin: "heads"}});
-cloud.addBlock("resultsBolt", resultsBolt, 6).input("tailsBolt").input("headsBolt");
+//cloud.addBlock("tailsBolt", tailsBolt, 10).input("coindTossSpout", {filter:{coin: "tails"}});
+cloud.addBlock("headsBolt", headsBolt, 5).input("coindTossSpout", {filter:{coin: "heads"}});
+//cloud.addBlock("resultsBolt", resultsBolt, 6).input("tailsBolt").input("headsBolt");
 
 // Setup cluster, and run topology...
 cloud.start();
