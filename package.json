@@ -22,11 +22,14 @@
   "homepage": "https://github.com/thepipster/nStorm#readme",
   "dependencies": {
     "async": "^2.6.1",
+    "bluebird": "^3.5.1",
     "callsite": "^1.0.0",
     "chalk": "^2.4.1",
+    "hiredis": "^0.5.0",
     "kue": "^0.11.6",
     "lodash": "^4.17.10",
     "moment": "^2.22.1",
+    "redis": "^2.8.0",
     "winston": "^3.0.0-rc5"
   }
 }
