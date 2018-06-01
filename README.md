@@ -96,7 +96,7 @@ The block can also send data using the `this.emit()` function, which allows you 
 ```js
 class HeadsBolt extends BaseBolt {
 
-    process(message, done) {
+    async process(message, done) {
 
         message.deltaHeads = Date.now() - message.time
         //Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}`);
@@ -112,6 +112,12 @@ class HeadsBolt extends BaseBolt {
 }
 ```
 
+### Queue Providers
+
+The default implementation uses the awesome [kue](https://github.com/Automattic/kue) under the hood. This creates a very robust system, but with some performance trade-offs. If you have a relatively simple implenetation with small jobs, then you can use the in memory 'async' implementation (uses `async.queue`).
+
+Support for [featureless-job-queue](https://github.com/Neamar/featureless-job-queue) is coming soon.
+
 ### Setting up a toplogy
 
 Once you have created your blocks, now you can wire them up!
@@ -123,27 +129,40 @@ const Logger = require('nstorm').Logger
 const nStorm = require('nstorm').nStorm
 const BaseBolt = require('nstorm').BaseBolt
 
-var cloud = new nStorm({
+var opts = {
+    queue:'simple', 
+    debug:true
 	redis: {
 			port: 6379,
 			host: '127.0.0.1',
 			prefix: 'nstorm-pubsub:'
 		}
-});
+}
 
-// Spout and Bolt implementation
-var coinTossSpout = new CoinSpout()
-var headsBolt = new HeadsBolt()
+async function test(){
 
-// Setting up topology using the topology builder
-var cloud = new nStorm()
+    // Spout and Bolt implementation
+    var coinTossSpout = new CoinSpout();
+    var headsBolt = new HeadsBolt();
+    var tailsBolt = new TailsBolt();
+    var resultsBolt = new ResultsBolt();
 
-// Setting up topology using the topology builder
-cloud.addBlock("coindTossSpout", coinTossSpout)
-cloud.addBlock("headsBolt", headsBolt).input("coindTossSpout")
+    var cloud = new nStorm(opts);
 
-// Setup cluster, and run topology...
-cloud.start()
+    // Setting up topology using the topology builder
+    cloud.addBlock("coindTossSpout", coinTossSpout);
+    cloud.addBlock("tailsBolt", tailsBolt, 10).input("coindTossSpout", {filter:{coin: "tails"}});
+    cloud.addBlock("headsBolt", headsBolt, 5).input("coindTossSpout", {filter:{coin: "heads"}});
+    cloud.addBlock("resultsBolt", resultsBolt, 6).input("tailsBolt").input("headsBolt");
+
+    // Setup cluster, and run topology...
+    await cloud.setupTopology()
+    await cloud.reset()
+    await cloud.start()
+
+}
+
+test().then().catch(err=>Logger.error(err))
 ```
 
 ### nStorm Options
@@ -153,12 +172,12 @@ When you create a nStorm cloud using `var cloud = new nStorm(<options>);` you ca
 Option | Default | Description
 --- | --- | ---
 cloudName | "stormcloud" | Specify the topology name, used if you plan to run more than one topology.
-useCluster | true | (experimental) Flag to indicate if nSTorm should use Node.js cluster and place each worker in its own child process. When a child worker dies, it is respawned.
+queue | 'kue' | The queue engine to use, options are 'kue', 'async' and 'featureless'
 redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
-reset | false | Reset the redis message queue when starting up
 debug | false | Turns on logging
 replayLimit | 3 | The number of times a message is replayed before its considered bad and deleted, i.e. if the same message causes an exception 3 times stop replaying the message!
 replayTime | 300 | Time (ms) between checking for failed messages
+(deprecated) reset | false | Deprecated, use `nStorm.reset()` instead. This gives you more control of how and when to reset.
 
 
 #### Parallelism
