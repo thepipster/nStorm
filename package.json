@@ -1,6 +1,6 @@
 {
   "name": "nstorm",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Node.js real-time processing engine, based on Twitter's Storm",
   "main": "index.js",
   "directories": {
