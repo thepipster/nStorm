@@ -19,7 +19,7 @@ To enable simple cross-server communications and replay of messages I made use o
 
 ## Installation
 
-```js
+```ts
 npm install nstorm
 ```
 
@@ -27,8 +27,8 @@ npm install nstorm
 
 Include nStorm by
 
-```js
-var nStorm = require('nstorm');
+```ts
+import { nStorm, BaseBolt } from
 ```
 
 In Twitter Storm, you can create two types of blocks;
@@ -48,42 +48,26 @@ The data you pass should be an Array or Object.
 
 The following block demonstrates a coin toss, it randomly 'emits' a head or a tails, and emits that as an object.
 
-```js
+```ts
 /**
  * Demo spout that randomly creates 'coins', either heads or tails
  */
 class CoinSpout extends BaseBolt {
+    async start(): Promise<void> {
+        const sendData = (): void => {
+            const test = Math.floor(Math.random() * 101);
+            const toss = test < 50 ? "heads" : "tails";
+            const row = { coin: toss, time: Date.now() };
 
-    async start() {
-
-        Logger.info("Starting...");
-
-        for (var i=0; i<1000; i++){
-
-            var test = getRandomInt(0,100);
-
-            var toss = 'tails';
-            if (test < 50){
-                toss = 'heads';
-            }
-
-            var row = {coin: toss, count: i, time: Date.now(), deltaSpout: getDelta()}
-
-            Logger.debug("Emitting", row);
-
-            // Use the utility delay function to wait 3 seconds
-            await this.delay(3000)
-
-            // Send the data to any block that is consuming it
             this.emit(row);
-            
-        }
 
-        return
+            setTimeout(() => {
+                sendData();
+            }, 1000);
+        };
 
+        sendData();
     }
-
-
 }
 ```
 
@@ -93,22 +77,20 @@ Creating a processing block is also pretty straight forward, and also extends fr
 
 The block can also send data using the `this.emit()` function, which allows you to pass data to other blocks. 
 
-```js
+```ts
 class HeadsBolt extends BaseBolt {
-
-    async process(message, done) {
-
-        message.deltaHeads = Date.now() - message.time
-        //Logger.info(`Heads >>>>> ${message.coin} - message.count = ${message.count}`);
+    async process(
+        message: Record<string, unknown>,
+        done: (err?: Error | null) => void,
+    ): Promise<void> {
+        Logger.info("Heads ", message.coin as string);
 
         // Pass data along
         this.emit(message);
 
         // Acknowledge
-        done()
-
+        done();
     }
-
 }
 ```
 
@@ -124,45 +106,30 @@ Once you have created your blocks, now you can wire them up!
 
 Here is an example based on the bolt and spout we just created
 
-```js
-const Logger = require('nstorm').Logger
-const nStorm = require('nstorm').nStorm
-const BaseBolt = require('nstorm').BaseBolt
+```ts
+// Spout and Bolt implementation
+const coinTossSpout = new CoinSpout();
+const headsBolt = new HeadsBolt();
 
-var opts = {
-    queue:'simple', 
-    debug:true
-	redis: {
-			port: 6379,
-			host: '127.0.0.1',
-			prefix: 'nstorm-pubsub:'
-		}
-}
+const cloud = new nStorm({
+    debug: false,
+    redis: {
+        port: 6379,
+        host: "127.0.0.1",
+    },
+});
 
-async function test(){
-
-    // Spout and Bolt implementation
-    var coinTossSpout = new CoinSpout();
-    var headsBolt = new HeadsBolt();
-    var tailsBolt = new TailsBolt();
-    var resultsBolt = new ResultsBolt();
-
-    var cloud = new nStorm(opts);
-
+async function main(): Promise<void> {
     // Setting up topology using the topology builder
-    cloud.addBlock("coindTossSpout", coinTossSpout);
-    cloud.addBlock("tailsBolt", tailsBolt, 10).input("coindTossSpout", {filter:{coin: "tails"}});
-    cloud.addBlock("headsBolt", headsBolt, 5).input("coindTossSpout", {filter:{coin: "heads"}});
-    cloud.addBlock("resultsBolt", resultsBolt, 6).input("tailsBolt").input("headsBolt");
+    cloud.addBlock("coinTossSpout", coinTossSpout);
+    cloud.addBlock("headsBolt", headsBolt).input("coinTossSpout");
 
     // Setup cluster, and run topology...
-    await cloud.setupTopology()
-    await cloud.reset()
-    await cloud.start()
-
+    await cloud.setupTopology();
+    await cloud.start();
 }
 
-test().then().catch(err=>Logger.error(err))
+main().catch((err) => Logger.error(err));
 ```
 
 ### nStorm Options
@@ -184,7 +151,7 @@ replayTime | 300 | Time (ms) between checking for failed messages
 
 By default, every time a block gets a message its processing method is called. However, you can restrict the number of instances *per worker* by specifying a limit, e.g.
 
-```js
+```ts
 builder.addBlock("headsBolt", headsBolt, 2).input("coinTossSpout");
 ```
 
@@ -196,7 +163,7 @@ Note, for this to work you must call `context.ack(message)` so nStorm knows you'
 
 Inputs can be chained, e.g.;
 
-```js
+```ts
 builder.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
 ```
 
@@ -206,7 +173,7 @@ So, here a 'resultsBot' is getting inputs from both a `tailsBolt` and a `headsBo
 
 Inputs can be filted on a specific key and value, e.g
 
-```js
+```ts
 builder.addBlock("headsBolt", headsBolt, 1).input("coinTossSpout", {coin: "heads"});
 ```
 
