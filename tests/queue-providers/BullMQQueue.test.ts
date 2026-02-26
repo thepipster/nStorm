@@ -13,26 +13,36 @@ const mockEventsOn = vi.fn();
 let capturedWorkerProcessor: ((job: { data: unknown }) => Promise<void>) | null =
   null;
 
-vi.mock('bullmq', () => ({
-  Queue: vi.fn().mockImplementation(() => ({
-    add: mockAdd,
-    obliterate: mockObliterate,
-    close: mockQueueClose,
-  })),
-  Worker: vi.fn().mockImplementation((_name: string, processor: unknown) => {
+vi.mock('bullmq', () => {
+  const MockQueue = vi.fn(function (this: Record<string, unknown>) {
+    this.add = mockAdd;
+    this.obliterate = mockObliterate;
+    this.close = mockQueueClose;
+  });
+
+  const MockWorker = vi.fn(function (
+    this: Record<string, unknown>,
+    _name: string,
+    processor: unknown
+  ) {
     capturedWorkerProcessor = processor as (job: {
       data: unknown;
     }) => Promise<void>;
-    return {
-      close: mockWorkerClose,
-      on: mockWorkerOn,
-    };
-  }),
-  QueueEvents: vi.fn().mockImplementation(() => ({
-    close: mockEventsClose,
-    on: mockEventsOn,
-  })),
-}));
+    this.close = mockWorkerClose;
+    this.on = mockWorkerOn;
+  });
+
+  const MockQueueEvents = vi.fn(function (this: Record<string, unknown>) {
+    this.close = mockEventsClose;
+    this.on = mockEventsOn;
+  });
+
+  return {
+    Queue: MockQueue,
+    Worker: MockWorker,
+    QueueEvents: MockQueueEvents,
+  };
+});
 
 // ---- Mock ioredis ----
 vi.mock('ioredis', () => {
