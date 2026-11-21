@@ -65,6 +65,7 @@ describe("SimpleQueue", () => {
         await queue?.close();
     });
 
+    // @spec QUEUE-CONNECT-001
     it("should not open a Redis connection until it is needed", async () => {
         queue = new SimpleQueue(makeSettings());
         await queue.registerBlock({ name: "lazy" });
@@ -76,6 +77,7 @@ describe("SimpleQueue", () => {
         expect(IORedis).toHaveBeenCalledTimes(1);
     });
 
+    // @spec SIMPLE-REDIS-001
     it("should pass the redis username and password through", async () => {
         queue = new SimpleQueue(
             makeSettings({
@@ -101,6 +103,7 @@ describe("SimpleQueue", () => {
     });
 
     describe("emit", () => {
+        // @spec QUEUE-EMIT-001
         it("should reject if block is not registered", async () => {
             queue = new SimpleQueue(makeSettings());
             await expect(queue.emit("missing", { data: 1 })).rejects.toThrow(
@@ -108,6 +111,7 @@ describe("SimpleQueue", () => {
             );
         });
 
+        // @spec QUEUE-NAME-001, SIMPLE-ENVELOPE-001
         it("should push to a key namespaced by cloud name", async () => {
             queue = new SimpleQueue(makeSettings());
             await queue.registerBlock({ name: "pushBlock" });
@@ -120,6 +124,7 @@ describe("SimpleQueue", () => {
             );
         });
 
+        // @spec SIMPLE-KEY-001
         it("should apply redis.prefix to the key", async () => {
             queue = new SimpleQueue(
                 makeSettings({
@@ -135,6 +140,7 @@ describe("SimpleQueue", () => {
             );
         });
 
+        // @spec QUEUE-NAME-001
         it("should keep same-named blocks in different clouds apart", async () => {
             queue = new SimpleQueue(makeSettings({ cloudName: "cloud-a" }));
             const other = new SimpleQueue(
@@ -154,6 +160,7 @@ describe("SimpleQueue", () => {
             ]);
         });
 
+        // @spec QUEUE-EMIT-002
         it("should reject when Redis refuses the write", async () => {
             mockRpush.mockRejectedValueOnce(new Error("redis down"));
             queue = new SimpleQueue(makeSettings());
@@ -193,6 +200,7 @@ describe("SimpleQueue", () => {
             );
         });
 
+        // @spec SIMPLE-ENVELOPE-002
         it("should accept a bare message written by an older version", async () => {
             pending.push(JSON.stringify({ legacy: true }));
             queue = new SimpleQueue(makeSettings());
@@ -209,6 +217,7 @@ describe("SimpleQueue", () => {
             );
         });
 
+        // @spec SIMPLE-ENVELOPE-003
         it("should drop an unparseable message and keep going", async () => {
             pending.push("{not json", envelope({ ok: true }));
             queue = new SimpleQueue(makeSettings());
@@ -223,6 +232,7 @@ describe("SimpleQueue", () => {
             await vi.waitFor(() => expect(received).toEqual([{ ok: true }]));
         });
 
+        // @spec SIMPLE-CONCURRENCY-001
         it("should respect the concurrency limit", async () => {
             for (let i = 0; i < 5; i++) pending.push(envelope({ i }));
             queue = new SimpleQueue(makeSettings());
@@ -246,6 +256,7 @@ describe("SimpleQueue", () => {
             expect(maxConcurrent).toBe(2);
         });
 
+        // @spec QUEUE-DONE-001
         it("should not exceed the limit when done is called twice", async () => {
             for (let i = 0; i < 4; i++) pending.push(envelope({ i }));
             queue = new SimpleQueue(makeSettings());
@@ -270,6 +281,7 @@ describe("SimpleQueue", () => {
             expect(maxConcurrent).toBe(1);
         });
 
+        // @spec QUEUE-REPLAY-001, SIMPLE-REPLAY-001
         it("should re-queue a failed message with the attempt incremented", async () => {
             pending.push(envelope({ job: 1 }));
             queue = new SimpleQueue(makeSettings());
@@ -287,6 +299,7 @@ describe("SimpleQueue", () => {
             );
         });
 
+        // @spec QUEUE-REPLAY-001
         it("should re-queue when the callback throws", async () => {
             pending.push(envelope({ job: 1 }));
             queue = new SimpleQueue(makeSettings());
@@ -299,6 +312,7 @@ describe("SimpleQueue", () => {
             await vi.waitFor(() => expect(mockRpush).toHaveBeenCalledTimes(1));
         });
 
+        // @spec QUEUE-REPLAY-001
         it("should drop a message that has used up replayLimit", async () => {
             pending.push(envelope({ job: 1 }, 3));
             queue = new SimpleQueue(makeSettings({ replayLimit: 3 }));
@@ -315,6 +329,7 @@ describe("SimpleQueue", () => {
             expect(mockRpush).not.toHaveBeenCalled();
         });
 
+        // @spec QUEUE-REPLAY-002
         it("should not replay at all when replay is off", async () => {
             pending.push(envelope({ job: 1 }));
             queue = new SimpleQueue(makeSettings({ replay: false }));
@@ -333,6 +348,7 @@ describe("SimpleQueue", () => {
     });
 
     describe("clear", () => {
+        // @spec QUEUE-CLEAR-001, SIMPLE-CLEAR-001
         it("should delete only this topology's keys, without scanning", async () => {
             queue = new SimpleQueue(makeSettings());
             await queue.registerBlock({ name: "block1" });
@@ -357,6 +373,7 @@ describe("SimpleQueue", () => {
     });
 
     describe("lifecycle", () => {
+        // @spec QUEUE-SIGNAL-001
         it("start should not install signal handlers", async () => {
             const onceSpy = vi.spyOn(process, "once");
             const onSpy = vi.spyOn(process, "on");
@@ -370,6 +387,7 @@ describe("SimpleQueue", () => {
             onSpy.mockRestore();
         });
 
+        // @spec QUEUE-CLOSE-001
         it("close should stop polling and disconnect every connection", async () => {
             queue = new SimpleQueue(makeSettings());
             await queue.registerBlock({ name: "a" });
@@ -389,6 +407,7 @@ describe("SimpleQueue", () => {
             expect(mockBlpop.mock.calls.length).toBe(callsAfterClose);
         });
 
+        // @spec QUEUE-CLOSE-001
         it("close should cancel a pending replay", async () => {
             pending.push(envelope({ job: 1 }));
             queue = new SimpleQueue(makeSettings({ replayTime: 150 }));

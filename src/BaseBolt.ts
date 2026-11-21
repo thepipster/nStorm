@@ -73,6 +73,7 @@ export class BaseBolt {
      * A message fails (and is replayed, if the provider supports it) when
      * process() calls done(err), throws, or returns a promise that rejects.
      */
+    // @spec BOLT-PROCESS-001, BOLT-PROCESS-002
     _init(): void {
         if (!this.context) {
             throw new Error(
@@ -113,6 +114,7 @@ export class BaseBolt {
      * or when every key in the filter is present on the message with a
      * strictly equal value.
      */
+    // @spec BOLT-FILTER-001, BOLT-FILTER-002
     _isFiltered(
         msg: Record<string, unknown>,
         filter?: Record<string, unknown>,
@@ -132,8 +134,9 @@ export class BaseBolt {
      * The returned promise resolves once every subscriber's queue has accepted
      * the message, and rejects if any of them could not. Awaiting it is
      * optional: a failure is always logged, and ignoring the promise will not
-     * cause an unhandled rejection.
+     * cause an unhandled rejection (ADR-0003).
      */
+    // @spec BOLT-EMIT-001, BOLT-EMIT-002, BOLT-EMIT-003, BOLT-EMIT-004
     emit(message: Record<string, unknown>): Promise<void> {
         const result = this._emit(message);
 
@@ -166,6 +169,7 @@ export class BaseBolt {
      * Handle a message. Override this in your block, and call done() exactly
      * once when finished - done(err) to mark the message as failed.
      */
+    // @spec BOLT-PROCESS-003
     async process(_message: unknown, done: DoneCallback): Promise<void> {
         // Override in subclass. The default just acknowledges the message so
         // that source-only blocks never hold a queue slot.
@@ -191,6 +195,7 @@ export class BaseBolt {
     /**
      * This function sets up the input for a block.
      */
+    // @spec BOLT-INPUT-001
     input(sourceName: string, options?: InputOptions): this {
         this.inputs.push({
             name: sourceName,

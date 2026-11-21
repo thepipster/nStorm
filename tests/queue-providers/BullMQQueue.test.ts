@@ -73,6 +73,7 @@ describe("BullMQQueue", () => {
         capturedWorkerProcessor = null;
     });
 
+    // @spec QUEUE-CONNECT-001
     it("should construct without opening any Redis connection", () => {
         const queue = new BullMQQueue(makeSettings());
         expect(queue).toBeInstanceOf(BullMQQueue);
@@ -87,6 +88,7 @@ describe("BullMQQueue", () => {
     });
 
     describe("registerBlock", () => {
+        // @spec QUEUE-NAME-001, QUEUE-REPLAY-001, BULLMQ-DELIVERY-001
         it("should create a BullMQ Queue for the block", async () => {
             const queue = new BullMQQueue(makeSettings());
             await queue.registerBlock({ name: "myBlock" });
@@ -106,6 +108,7 @@ describe("BullMQQueue", () => {
             );
         });
 
+        // @spec QUEUE-REPLAY-002
         it("should make a single attempt when replay is off", async () => {
             const queue = new BullMQQueue(makeSettings({ replay: false }));
             await queue.registerBlock({ name: "noReplay" });
@@ -118,6 +121,7 @@ describe("BullMQQueue", () => {
             );
         });
 
+        // @spec BULLMQ-REDIS-001
         it("should pass redis user and prefix through to BullMQ", async () => {
             const queue = new BullMQQueue(
                 makeSettings({
@@ -142,6 +146,7 @@ describe("BullMQQueue", () => {
     });
 
     describe("start", () => {
+        // @spec QUEUE-SIGNAL-001
         it("should not install signal handlers", async () => {
             const onceSpy = vi.spyOn(process, "once");
             const onSpy = vi.spyOn(process, "on");
@@ -157,6 +162,7 @@ describe("BullMQQueue", () => {
     });
 
     describe("emit", () => {
+        // @spec QUEUE-EMIT-001
         it("should reject if block queue is not registered", async () => {
             const queue = new BullMQQueue(makeSettings());
             await expect(queue.emit("missing", { data: 1 })).rejects.toThrow(
@@ -164,6 +170,7 @@ describe("BullMQQueue", () => {
             );
         });
 
+        // @spec QUEUE-EMIT-002
         it("should reject when BullMQ cannot add the job", async () => {
             mockAdd.mockRejectedValueOnce(new Error("redis down"));
             const queue = new BullMQQueue(makeSettings());
@@ -186,6 +193,7 @@ describe("BullMQQueue", () => {
     });
 
     describe("process", () => {
+        // @spec BULLMQ-WORKER-001
         it("should create a Worker for the block", async () => {
             const queue = new BullMQQueue(makeSettings());
             await queue.registerBlock({ name: "procBlock" });
@@ -211,6 +219,7 @@ describe("BullMQQueue", () => {
             );
         });
 
+        // @spec BULLMQ-DEBUG-001
         it("should create QueueEvents when debug is true", async () => {
             const queue = new BullMQQueue(makeSettings({ debug: true }));
             await queue.registerBlock({ name: "debugBlock" });
@@ -226,6 +235,7 @@ describe("BullMQQueue", () => {
             );
         });
 
+        // @spec BULLMQ-DELIVERY-002
         it("should invoke callback when worker processes a job", async () => {
             const queue = new BullMQQueue(makeSettings());
             await queue.registerBlock({ name: "callbackBlock" });
@@ -248,6 +258,7 @@ describe("BullMQQueue", () => {
             );
         });
 
+        // @spec BULLMQ-DELIVERY-003
         it("should reject when callback calls done with error", async () => {
             const queue = new BullMQQueue(makeSettings());
             await queue.registerBlock({ name: "errBlock" });
@@ -265,6 +276,7 @@ describe("BullMQQueue", () => {
             ).rejects.toThrow("job failed");
         });
 
+        // @spec BULLMQ-DELIVERY-003
         it("should reject when callback throws", async () => {
             const queue = new BullMQQueue(makeSettings());
             await queue.registerBlock({ name: "throwBlock" });
@@ -282,6 +294,7 @@ describe("BullMQQueue", () => {
     });
 
     describe("clear", () => {
+        // @spec QUEUE-CLEAR-001
         it("should obliterate all registered queues", async () => {
             const queue = new BullMQQueue(makeSettings());
             await queue.registerBlock({ name: "a" });
@@ -295,6 +308,7 @@ describe("BullMQQueue", () => {
     });
 
     describe("close", () => {
+        // @spec QUEUE-CLOSE-001
         it("should close all workers, events, queues, and disconnect", async () => {
             const queue = new BullMQQueue(makeSettings({ debug: true }));
             await queue.registerBlock({ name: "closeBlock" });
@@ -309,6 +323,7 @@ describe("BullMQQueue", () => {
             expect(mockQueueClose).toHaveBeenCalled();
         });
 
+        // @spec QUEUE-CLOSE-002
         it("should be safe to call twice", async () => {
             const queue = new BullMQQueue(makeSettings());
             await queue.registerBlock({ name: "twice" });

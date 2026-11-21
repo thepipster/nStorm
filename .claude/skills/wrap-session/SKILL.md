@@ -34,7 +34,7 @@ not sinks of this skill but must already be current before you wrap:
 - **`.claude/CLAUDE.md`** — commands, the architecture map, and "Things that will
   trip you up". A gotcha that every session needs goes there, not in memory.
 
-`docs/adr/` and `docs/specs/` do not exist yet. Both are created lazily (see below).
+`docs/adr/` and `docs/specs/` both exist (created 2026-11-21); add to them rather than starting over.
 
 ---
 
@@ -130,9 +130,9 @@ _non-obvious sequencing or cross-file coordination_ — not a single edit.
   description must say **what it does and when to use it** (that's what makes it
   fire). Model the body on `add-queue-provider` — numbered steps, real file paths,
   "use X as the template" pointers, ending with "run the `verify` skill".
-- Prefer updating an existing skill (`verify`, `release`, `add-queue-provider`) with
+- Prefer updating an existing skill (`verify`, `publish`, `add-queue-provider`) with
   a newly-discovered step or gotcha over spawning a near-duplicate.
-- A skill that publishes or pushes (like `release`) keeps
+- A skill that publishes or pushes (like `publish`) keeps
   `disable-model-invocation: true` and an explicit confirmation step.
 
 ---
@@ -152,9 +152,8 @@ requirements).
   Bad honestly), `Alternatives considered`. Add the new ADR to the
   `docs/adr/README.md` index.
 - Cite it from code as `(ADR-NNNN)` where the decision is enforced.
-- `docs/adr/` does not exist yet. Create it, with a `README.md` holding the template
-  and index, **only** when a real decision warrants the first ADR — don't scaffold
-  empty folders.
+- `docs/adr/README.md` holds the template and the index. Only write an ADR for a
+  real decision — don't pad the log.
 
 ---
 
@@ -256,11 +255,12 @@ When intent changed this session, cascade **HLD → LLD → EARS → Tests → C
 git preserves history. A superseded _decision_ gets an ADR; a superseded
 _requirement_ just gets removed and its `@spec` citations cleaned up.
 
-### Lazy creation
+### Existing nodes
 
-`docs/specs/` doesn't exist yet. Create it **only** for the node(s) this session
-actually touched, plus a short `README.md` that explains the chain and indexes the
-nodes. Don't pre-scaffold an HLD or empty node folders for the whole library.
+All seven nodes have a design and a specs file, indexed in `docs/specs/README.md`.
+Add requirements to the node that owns the behaviour, taking the next free number in
+its subdomain. There is no HLD yet; write `high-level-design.md` only when a session
+shifts component boundaries or the provider contract.
 
 ---
 

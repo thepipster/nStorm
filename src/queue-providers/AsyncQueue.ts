@@ -22,6 +22,7 @@ export class AsyncQueue extends BaseQueue {
     /**
      * Called by a Spout/Bolt internally to send a message to a specific block
      */
+    // @spec ASYNC-DELIVERY-001
     async emit(
         blockName: string,
         message: Record<string, unknown>,
@@ -61,6 +62,7 @@ export class AsyncQueue extends BaseQueue {
     /**
      * Called internally by a block to register its message handler
      */
+    // @spec ASYNC-CONCURRENCY-001, ASYNC-DELIVERY-002
     process(
         blockName: string,
         concurrency: number,
@@ -95,6 +97,7 @@ export class AsyncQueue extends BaseQueue {
         for (const q of Object.values(this.queues)) q.remove(() => true);
     }
 
+    // @spec ASYNC-CLOSE-001
     async close(): Promise<void> {
         for (const timer of this.retryTimers) clearTimeout(timer);
         this.retryTimers.clear();

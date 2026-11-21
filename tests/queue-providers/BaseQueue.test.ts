@@ -44,6 +44,7 @@ describe("BaseQueue", () => {
         await expect(queue.close()).resolves.toBeUndefined();
     });
 
+    // @spec QUEUE-DONE-001
     it("once should only let the first call through", () => {
         const fn = vi.fn();
         const wrapped = once(fn);

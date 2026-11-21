@@ -30,3 +30,4 @@ TypeScript library (published to npm as `nstorm`) for building Storm-style proce
 - The library never touches process signals or calls `process.exit()`.
 - Provider tests only prove behaviour against mocks. After changing `BullMQQueue` or `SimpleQueue`, also run a real topology against a local Redis if one is available (`redis-cli ping`), using a throwaway `cloudName`.
 - User-visible behaviour changes go in the README, including its "Upgrading" section.
+- Intent is documented in `docs/specs/` (design + EARS requirements per component) and decisions in `docs/adr/`. Tests and entry-point code carry `// @spec <ID>` comments that link to those requirements: when you change behaviour, update the requirement first, and keep the IDs on tests and code in step. `grep -rn "@spec BOLT-FILTER-001" src tests` walks the chain.

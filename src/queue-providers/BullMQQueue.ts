@@ -19,6 +19,7 @@ export class BullMQQueue extends BaseQueue {
      * Options shared by every Queue / Worker / QueueEvents. BullMQ opens its
      * own connections from these, so we never hold one ourselves.
      */
+    // @spec BULLMQ-REDIS-001, QUEUE-CONNECT-001
     private bullOptions() {
         const { host, port, password, user, prefix } = this.settings.redis;
 
@@ -34,6 +35,7 @@ export class BullMQQueue extends BaseQueue {
         };
     }
 
+    // @spec BULLMQ-DELIVERY-001
     async registerBlock(block: { name: string }): Promise<void> {
         const queueName = this.queueName(block.name);
 
@@ -69,6 +71,7 @@ export class BullMQQueue extends BaseQueue {
         await queue.add(blockName, message);
     }
 
+    // @spec BULLMQ-WORKER-001, BULLMQ-DELIVERY-002, BULLMQ-DELIVERY-003, BULLMQ-DEBUG-001
     process(
         blockName: string,
         concurrency: number,

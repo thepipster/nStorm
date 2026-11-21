@@ -31,6 +31,7 @@ vi.mock("bullmq", () => {
 });
 
 import { nStorm } from "../src/nStorm";
+import Logger from "../src/Logger";
 
 function makeOpts(overrides?: Record<string, unknown>) {
     return {
@@ -86,12 +87,24 @@ describe("nStorm", () => {
             expect(cloud.queue.constructor.name).toBe("SimpleQueue");
         });
 
+        // @spec TOPO-CONFIG-001
         it("should throw for an unknown queue type", () => {
             expect(() => new nStorm({ queue: "unknown" as any })).toThrow(
                 /Unknown queue provider "unknown"/,
             );
         });
 
+        // @spec TOPO-CONFIG-003
+        it("should switch the logger to debug when debug is on", () => {
+            Logger.setLevel("info");
+
+            new nStorm({ queue: "async", debug: true });
+
+            expect((Logger as any)._logger.level).toBe("debug");
+            Logger.setLevel("info");
+        });
+
+        // @spec TOPO-CONFIG-002
         it("should not let an explicit undefined override a default", () => {
             const cloud = new nStorm({
                 queue: undefined,
@@ -152,6 +165,7 @@ describe("nStorm", () => {
             ]);
         });
 
+        // @spec TOPO-SETUP-005
         it("should throw when adding a block with a duplicate name", () => {
             cloud.addBlock("dup", new BaseBolt());
 
@@ -177,6 +191,7 @@ describe("nStorm", () => {
     });
 
     describe("setupTopology", () => {
+        // @spec TOPO-SETUP-001
         it("should wire up subscribers based on inputs", async () => {
             const cloud = new nStorm(makeOpts());
             const spout = new BaseBolt();
@@ -192,6 +207,7 @@ describe("nStorm", () => {
             ]);
         });
 
+        // @spec TOPO-SETUP-001
         it("should wire filter options into subscribers", async () => {
             const cloud = new nStorm(makeOpts());
             const spout = new BaseBolt();
@@ -209,6 +225,7 @@ describe("nStorm", () => {
             ]);
         });
 
+        // @spec TOPO-SETUP-001
         it("should support multiple inputs on a single block", async () => {
             const cloud = new nStorm(makeOpts());
             const s1 = new BaseBolt();
@@ -229,6 +246,7 @@ describe("nStorm", () => {
             ]);
         });
 
+        // @spec TOPO-SETUP-002
         it("should throw when an input source block does not exist", async () => {
             const cloud = new nStorm(makeOpts());
             const bolt = new BaseBolt();
@@ -259,6 +277,7 @@ describe("nStorm", () => {
     });
 
     describe("setupTopology guards", () => {
+        // @spec TOPO-SETUP-003
         it("should refuse to run twice rather than duplicate subscribers", async () => {
             const cloud = new nStorm(makeOpts());
             const spout = new BaseBolt();
@@ -273,6 +292,7 @@ describe("nStorm", () => {
             expect(spout.subscribers).toHaveLength(1);
         });
 
+        // @spec TOPO-SETUP-002
         it("should leave nothing wired when an input is invalid", async () => {
             const cloud = new nStorm(makeOpts());
             const spout = new BaseBolt();
@@ -285,6 +305,7 @@ describe("nStorm", () => {
             expect(spout.subscribers).toEqual([]);
         });
 
+        // @spec TOPO-SETUP-004
         it("should refuse blocks added after setup", async () => {
             const cloud = new nStorm(makeOpts());
             cloud.addBlock("a", new BaseBolt());
@@ -297,6 +318,7 @@ describe("nStorm", () => {
     });
 
     describe("stop", () => {
+        // @spec TOPO-STOP-001
         it("should call stop on every block and close the queue", async () => {
             const cloud = new nStorm(makeOpts());
             const a = new BaseBolt();
@@ -315,6 +337,7 @@ describe("nStorm", () => {
             expect(closeSpy).toHaveBeenCalled();
         });
 
+        // @spec TOPO-STOP-002
         it("should still close the queue when a block fails to stop", async () => {
             const cloud = new nStorm(makeOpts());
             const a = new BaseBolt();
@@ -330,6 +353,7 @@ describe("nStorm", () => {
     });
 
     describe("start", () => {
+        // @spec TOPO-START-001
         it("should set up the topology itself if that has not been done", async () => {
             const cloud = new nStorm(makeOpts());
             const spout = new BaseBolt();
@@ -341,6 +365,7 @@ describe("nStorm", () => {
             expect(spout.subscribers).toHaveLength(1);
         });
 
+        // @spec TOPO-START-003
         it("should refuse to start twice", async () => {
             const cloud = new nStorm(makeOpts());
             cloud.addBlock("a", new BaseBolt());
@@ -349,6 +374,7 @@ describe("nStorm", () => {
             await expect(cloud.start()).rejects.toThrow(/already been called/);
         });
 
+        // @spec TOPO-START-002
         it("should not let a long-running start() hold up other blocks", async () => {
             const cloud = new nStorm(makeOpts());
             let release: () => void = () => {};
@@ -534,6 +560,7 @@ describe("nStorm", () => {
             expect(tailsReceived).toHaveLength(1);
         });
 
+        // @spec BOLT-PROCESS-001, QUEUE-REPLAY-001
         it("should replay a message whose async process() rejects", async () => {
             const cloud = new nStorm(
                 makeOpts({ replayLimit: 3, replayTime: 5 }),

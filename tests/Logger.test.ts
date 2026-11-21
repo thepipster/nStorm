@@ -10,10 +10,23 @@ describe("Logger", () => {
         Logger.stackTraces = true;
     });
 
+    // @spec LOG-LEVEL-001
     it("should default to the info level", () => {
         expect(winstonLogger().level).toBe("info");
     });
 
+    // @spec LOG-LEVEL-002
+    it("should start at the level named by NSTORM_LOG_LEVEL", async () => {
+        vi.stubEnv("NSTORM_LOG_LEVEL", "warn");
+        vi.resetModules();
+
+        const fresh = (await import("../src/Logger")).default;
+
+        expect((fresh as any)._logger.level).toBe("warn");
+        vi.unstubAllEnvs();
+    });
+
+    // @spec LOG-ALIAS-001
     it("log() should write at a level winston knows about", () => {
         const spy = vi
             .spyOn(winstonLogger(), "log")
@@ -27,6 +40,7 @@ describe("Logger", () => {
         );
     });
 
+    // @spec LOG-ALIAS-002
     it("fatal() should write at the error level", () => {
         const spy = vi
             .spyOn(winstonLogger(), "log")
@@ -40,6 +54,7 @@ describe("Logger", () => {
         );
     });
 
+    // @spec LOG-LEVEL-004
     it("should do no work for a message below the current level", () => {
         const logSpy = vi
             .spyOn(winstonLogger(), "log")
@@ -53,6 +68,7 @@ describe("Logger", () => {
         expect(logSpy).not.toHaveBeenCalled();
     });
 
+    // @spec LOG-LEVEL-003
     it("setLevel should enable debug output", () => {
         const spy = vi
             .spyOn(winstonLogger(), "log")
@@ -67,6 +83,7 @@ describe("Logger", () => {
         );
     });
 
+    // @spec LOG-TRACE-001, LOG-TRACE-002
     it("should append the call site, and omit it when stackTraces is off", () => {
         const spy = vi
             .spyOn(winstonLogger(), "log")
@@ -80,6 +97,7 @@ describe("Logger", () => {
         expect(spy.mock.calls[1][1]).not.toContain("{from line");
     });
 
+    // @spec LOG-FORMAT-001
     it("should serialise objects and errors", () => {
         const spy = vi
             .spyOn(winstonLogger(), "log")

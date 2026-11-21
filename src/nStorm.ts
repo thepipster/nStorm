@@ -27,6 +27,7 @@ export class nStorm {
     private isSetup = false;
     private isStarted = false;
 
+    // @spec TOPO-CONFIG-001, TOPO-CONFIG-002, TOPO-CONFIG-003
     constructor(options?: DeepPartial<NStormSettings>) {
         const defaults: NStormSettings = {
             cloudName: "stormcloud",
@@ -73,6 +74,7 @@ export class nStorm {
      * Call once, after every block has been added. start() calls this for you
      * if you have not.
      */
+    // @spec TOPO-SETUP-001, TOPO-SETUP-002, TOPO-SETUP-003
     async setupTopology(): Promise<void> {
         if (this.isSetup) {
             throw new Error("setupTopology() has already been called");
@@ -125,6 +127,7 @@ export class nStorm {
      * source block whose start() runs for a long time does not hold up the
      * others. Resolves when they have all returned.
      */
+    // @spec TOPO-START-001, TOPO-START-002, TOPO-START-003
     async start(): Promise<void> {
         if (this.isStarted) {
             throw new Error("start() has already been called");
@@ -154,8 +157,10 @@ export class nStorm {
     /**
      * Stop the topology: calls every block's stop() hook, then stops consuming
      * and closes every connection the queue provider opened. nStorm installs
-     * no signal handlers - call this from your own SIGINT/SIGTERM handler.
+     * no signal handlers - call this from your own SIGINT/SIGTERM handler
+     * (ADR-0001).
      */
+    // @spec TOPO-STOP-001, TOPO-STOP-002
     async stop(): Promise<void> {
         if (this.settings.debug) {
             Logger.debug("Stopping cloud");
@@ -190,6 +195,7 @@ export class nStorm {
      * @param limit maximum number of messages the block processes at one time
      * @returns The block (for chaining .input() calls)
      */
+    // @spec TOPO-SETUP-004, TOPO-SETUP-005
     addBlock(name: string, block: BaseBolt, limit?: number): BaseBolt {
         if (this.isSetup) {
             throw new Error(

@@ -113,6 +113,7 @@ describe("BaseBolt", () => {
             );
         });
 
+        // @spec BOLT-PROCESS-001
         it("should fail the job when process returns a rejected promise", async () => {
             const ctx = makeMockContext();
             bolt.setup({ name: "rejectBolt" }, ctx as any);
@@ -130,6 +131,7 @@ describe("BaseBolt", () => {
             );
         });
 
+        // @spec BOLT-PROCESS-002
         it("should only report completion once, however often done is called", async () => {
             const ctx = makeMockContext();
             bolt.setup({ name: "twiceBolt" }, ctx as any);
@@ -155,6 +157,7 @@ describe("BaseBolt", () => {
             expect(() => bolt._init()).toThrow(/not been added to a topology/);
         });
 
+        // @spec BOLT-PROCESS-001
         it("should catch errors thrown by process and call done with error", () => {
             const ctx = makeMockContext();
             bolt.setup({ name: "errBolt" }, ctx as any);
@@ -187,29 +190,34 @@ describe("BaseBolt", () => {
     });
 
     describe("_isFiltered", () => {
+        // @spec BOLT-FILTER-002
         it("should return true when no filter is provided", () => {
             expect(bolt._isFiltered({ key: "val" })).toBe(true);
             expect(bolt._isFiltered({ key: "val" }, undefined)).toBe(true);
         });
 
+        // @spec BOLT-FILTER-001
         it("should return true when message matches filter", () => {
             expect(bolt._isFiltered({ coin: "heads" }, { coin: "heads" })).toBe(
                 true,
             );
         });
 
+        // @spec BOLT-FILTER-001
         it("should return false when message does not match filter", () => {
             expect(bolt._isFiltered({ coin: "heads" }, { coin: "tails" })).toBe(
                 false,
             );
         });
 
+        // @spec BOLT-FILTER-001
         it("should return false when a filter key is missing from the message", () => {
             expect(bolt._isFiltered({ other: "val" }, { coin: "heads" })).toBe(
                 false,
             );
         });
 
+        // @spec BOLT-FILTER-001
         it("should require every filter key to match", () => {
             expect(bolt._isFiltered({ a: 1, b: 2 }, { a: 1, b: 999 })).toBe(
                 false,
@@ -222,6 +230,7 @@ describe("BaseBolt", () => {
             );
         });
 
+        // @spec BOLT-FILTER-001
         it("should not match on inherited properties", () => {
             expect(
                 bolt._isFiltered({}, { toString: Object.prototype.toString }),
@@ -243,6 +252,7 @@ describe("BaseBolt", () => {
             expect(ctx._mockEmit).toHaveBeenCalledWith("sub2", { data: 42 });
         });
 
+        // @spec BOLT-FILTER-001
         it("should skip subscribers whose filter does not match", async () => {
             const ctx = makeMockContext();
             bolt.setup({ name: "filterBolt" }, ctx as any);
@@ -260,6 +270,7 @@ describe("BaseBolt", () => {
             });
         });
 
+        // @spec BOLT-FILTER-002
         it("should send to subscribers with no filter", async () => {
             const ctx = makeMockContext();
             bolt.setup({ name: "noFilterBolt" }, ctx as any);
@@ -282,6 +293,7 @@ describe("BaseBolt", () => {
     });
 
     describe("emit results", () => {
+        // @spec BOLT-EMIT-001
         it("should resolve once every subscriber queue has accepted the message", async () => {
             const ctx = makeMockContext();
             ctx._mockEmit.mockResolvedValue(undefined);
@@ -291,6 +303,7 @@ describe("BaseBolt", () => {
             await expect(bolt.emit({ data: 1 })).resolves.toBeUndefined();
         });
 
+        // @spec BOLT-EMIT-002
         it("should reject when a queue cannot accept the message", async () => {
             const ctx = makeMockContext();
             ctx._mockEmit.mockRejectedValue(new Error("redis down"));
@@ -300,6 +313,7 @@ describe("BaseBolt", () => {
             await expect(bolt.emit({ data: 1 })).rejects.toThrow("redis down");
         });
 
+        // @spec BOLT-EMIT-003
         it("should not raise an unhandled rejection when the result is ignored", async () => {
             const unhandled = vi.fn();
             process.on("unhandledRejection", unhandled);
@@ -316,6 +330,7 @@ describe("BaseBolt", () => {
             expect(unhandled).not.toHaveBeenCalled();
         });
 
+        // @spec BOLT-EMIT-004
         it("should reject when the block is not part of a topology", async () => {
             await expect(bolt.emit({ data: 1 })).rejects.toThrow(
                 /not been added to a topology/,
@@ -347,6 +362,7 @@ describe("BaseBolt", () => {
             expect(bolt.inputs).toHaveLength(2);
         });
 
+        // @spec BOLT-INPUT-001
         it("should deduplicate inputs by name", () => {
             bolt.input("source1");
             bolt.input("source1");
@@ -354,6 +370,7 @@ describe("BaseBolt", () => {
             expect(bolt.inputs).toHaveLength(1);
         });
 
+        // @spec BOLT-INPUT-001
         it("should keep first entry when deduplicating", () => {
             bolt.input("source1", { filter: { coin: "heads" } });
             bolt.input("source1", { filter: { coin: "tails" } });
@@ -369,6 +386,7 @@ describe("BaseBolt", () => {
             await expect(bolt.process({}, done)).resolves.toBeUndefined();
         });
 
+        // @spec BOLT-PROCESS-003
         it("should acknowledge the message by default", async () => {
             const done = vi.fn();
             await bolt.process({}, done);

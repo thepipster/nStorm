@@ -22,7 +22,7 @@ const POP_TIMEOUT_SECONDS = 1;
  *
  * - A message is removed from Redis when a worker picks it up, so a message
  *   that is being processed (or waiting out its `replayTime` before a retry)
- *   when the process dies is lost. Use BullMQ if that matters.
+ *   when the process dies is lost. Use BullMQ if that matters (ADR-0002).
  * - A message whose block calls `done(err)`, throws or rejects is put back on
  *   the queue after `replayTime`, up to `replayLimit` deliveries in total
  *   (`replay: false` disables this).
@@ -37,6 +37,7 @@ export class SimpleQueue extends BaseQueue {
     private pollers: Poller[] = [];
     private retryTimers = new Set<NodeJS.Timeout>();
 
+    // @spec SIMPLE-REDIS-001
     private connect(): IORedis {
         const { host, port, password, user } = this.settings.redis;
 
@@ -49,11 +50,13 @@ export class SimpleQueue extends BaseQueue {
         });
     }
 
+    // @spec QUEUE-CONNECT-001
     private getClient(): IORedis {
         if (!this.client) this.client = this.connect();
         return this.client;
     }
 
+    // @spec SIMPLE-KEY-001
     private redisKey(blockName: string): string {
         const prefix = this.settings.redis.prefix;
         return `${prefix ? prefix + ":" : ""}${this.queueName(blockName)}:sq-jobs`;
@@ -77,6 +80,7 @@ export class SimpleQueue extends BaseQueue {
         return q;
     }
 
+    // @spec SIMPLE-ENVELOPE-001
     async emit(
         blockName: string,
         message: Record<string, unknown>,
@@ -89,6 +93,7 @@ export class SimpleQueue extends BaseQueue {
         await this.getClient().rpush(redisKey, JSON.stringify(envelope));
     }
 
+    // @spec SIMPLE-ENVELOPE-002, SIMPLE-ENVELOPE-003
     private parse(raw: string): Envelope | null {
         try {
             const parsed = JSON.parse(raw);
@@ -110,6 +115,7 @@ export class SimpleQueue extends BaseQueue {
         }
     }
 
+    // @spec SIMPLE-REPLAY-001
     private handleFailure(
         redisKey: string,
         envelope: Envelope,
@@ -135,6 +141,7 @@ export class SimpleQueue extends BaseQueue {
         this.retryTimers.add(timer);
     }
 
+    // @spec SIMPLE-CONCURRENCY-001
     process(
         blockName: string,
         concurrency: number,
@@ -206,6 +213,7 @@ export class SimpleQueue extends BaseQueue {
     /**
      * Delete the queued messages for this topology's blocks only.
      */
+    // @spec SIMPLE-CLEAR-001
     async clear(): Promise<void> {
         const keys = Object.values(this.queues).map((q) => q.redisKey);
 

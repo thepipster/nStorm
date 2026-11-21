@@ -34,6 +34,7 @@ describe("AsyncQueue", () => {
         ).resolves.toBeUndefined();
     });
 
+    // @spec QUEUE-EMIT-001
     it("emit should reject if the block queue is not registered", async () => {
         const queue = new AsyncQueue(makeSettings());
 
@@ -42,6 +43,7 @@ describe("AsyncQueue", () => {
         );
     });
 
+    // @spec ASYNC-DELIVERY-001
     it("should deliver messages to the callback", async () => {
         const queue = new AsyncQueue(makeSettings());
         const received: unknown[] = [];
@@ -66,6 +68,7 @@ describe("AsyncQueue", () => {
         expect(received[1]).toEqual({ msg: "two" });
     });
 
+    // @spec QUEUE-REPLAY-002, ASYNC-DELIVERY-002
     it("should handle errors in the callback without crashing", async () => {
         const queue = new AsyncQueue(makeSettings());
 
@@ -81,6 +84,7 @@ describe("AsyncQueue", () => {
         expect(callback).toHaveBeenCalledTimes(1);
     });
 
+    // @spec ASYNC-CONCURRENCY-001
     it("should respect concurrency", async () => {
         const queue = new AsyncQueue(makeSettings());
         let concurrent = 0;
@@ -111,6 +115,7 @@ describe("AsyncQueue", () => {
         expect(maxConcurrent).toBeLessThanOrEqual(2);
     });
 
+    // @spec QUEUE-REPLAY-001
     it("should replay a failed message up to replayLimit times", async () => {
         const queue = new AsyncQueue(
             makeSettings({ replay: true, replayLimit: 3, replayTime: 5 }),
@@ -130,6 +135,7 @@ describe("AsyncQueue", () => {
         expect(callback).toHaveBeenCalledTimes(3);
     });
 
+    // @spec QUEUE-REPLAY-001
     it("should stop replaying once a delivery succeeds", async () => {
         const queue = new AsyncQueue(
             makeSettings({ replay: true, replayLimit: 5, replayTime: 5 }),
@@ -151,6 +157,7 @@ describe("AsyncQueue", () => {
         expect(callback).toHaveBeenCalledTimes(2);
     });
 
+    // @spec QUEUE-DONE-001
     it("should ignore a second call to done", async () => {
         const queue = new AsyncQueue(makeSettings());
         const callback = vi.fn(
@@ -167,6 +174,7 @@ describe("AsyncQueue", () => {
         await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2));
     });
 
+    // @spec QUEUE-CLOSE-001, ASYNC-CLOSE-001
     it("close should cancel pending replays and stop delivering", async () => {
         const queue = new AsyncQueue(
             makeSettings({ replay: true, replayLimit: 3, replayTime: 150 }),
@@ -190,6 +198,7 @@ describe("AsyncQueue", () => {
         );
     });
 
+    // @spec QUEUE-NAME-001
     it("should work with different cloud names (prefix isolation)", async () => {
         const q1 = new AsyncQueue(makeSettings({ cloudName: "cloud-a" }));
         const q2 = new AsyncQueue(makeSettings({ cloudName: "cloud-b" }));

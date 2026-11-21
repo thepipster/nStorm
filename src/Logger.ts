@@ -41,6 +41,7 @@ class Logger {
     static serviceName = "";
     private static _logger: winston.Logger;
 
+    // @spec LOG-LEVEL-001, LOG-LEVEL-002
     static init(): void {
         const myFormat = format.printf((info) => {
             return (
@@ -143,10 +144,12 @@ class Logger {
         return msg;
     }
 
+    // @spec LOG-LEVEL-003
     static setLevel(lvl: LogLevel = "debug"): void {
         Logger._logger.level = lvl;
     }
 
+    // @spec LOG-LEVEL-004, LOG-FORMAT-001, LOG-TRACE-001, LOG-TRACE-002
     private static __write(level: LogLevel, args: unknown[]): void {
         // Bail out before doing any work (serialising, capturing a stack) for
         // messages that would be thrown away
@@ -162,6 +165,7 @@ class Logger {
     }
 
     /** Alias for info() */
+    // @spec LOG-ALIAS-001
     static log(...args: unknown[]): void {
         Logger.__write("info", args);
     }
@@ -183,6 +187,7 @@ class Logger {
     }
 
     /** Alias for error() */
+    // @spec LOG-ALIAS-002
     static fatal(...args: unknown[]): void {
         Logger.__write("error", args);
     }
