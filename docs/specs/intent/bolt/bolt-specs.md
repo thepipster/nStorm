@@ -44,6 +44,10 @@ When `done` is called more than once for the same message, the bolt shall act on
 
 The base implementation of `process()` shall acknowledge the message.
 
+### BOLT-PROCESS-004
+
+Where a processing timeout is configured, if a block has not completed a message within it, then the bolt shall fail the message.
+
 ## Inputs
 
 ### BOLT-INPUT-001

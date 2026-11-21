@@ -22,11 +22,7 @@ When a message is emitted, the simple queue shall store it together with a deliv
 
 ### SIMPLE-ENVELOPE-002
 
-When a queued item carries no delivery count, the simple queue shall treat it as a message on its first delivery.
-
-### SIMPLE-ENVELOPE-003
-
-If a queued item cannot be parsed, then the simple queue shall discard it and continue with the next item.
+If a queued item cannot be parsed, or is not a message with a delivery count, then the simple queue shall discard it and continue with the next item.
 
 ## Consuming
 
@@ -45,3 +41,13 @@ When a message fails and may be delivered again, the simple queue shall put it b
 ### SIMPLE-REDIS-001
 
 Where a Redis username or password is configured, the simple queue shall connect with it.
+
+## Closing
+
+### SIMPLE-CLOSE-001
+
+When closed, the simple queue shall put messages that are waiting to be replayed, and messages that fail while it is closing, back on their queues without delay.
+
+### SIMPLE-CLOSE-002
+
+If a message is taken from Redis after closing has begun, then the simple queue shall return it to the front of its queue without delivering it.

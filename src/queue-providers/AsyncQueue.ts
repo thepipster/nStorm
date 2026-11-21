@@ -1,6 +1,11 @@
 import Logger from "../Logger";
 import async from "async";
-import { BaseQueue, QueueCallback, once } from "./BaseQueue";
+import {
+    BaseQueue,
+    QueueCallback,
+    once,
+    DEFAULT_CLOSE_TIMEOUT,
+} from "./BaseQueue";
 
 interface Task {
     message: Record<string, unknown>;
@@ -18,6 +23,7 @@ interface Task {
 export class AsyncQueue extends BaseQueue {
     private queues: Record<string, async.QueueObject<Task>> = {};
     private retryTimers = new Set<NodeJS.Timeout>();
+    private closing: Promise<void> | null = null;
 
     /**
      * Called by a Spout/Bolt internally to send a message to a specific block
@@ -50,6 +56,10 @@ export class AsyncQueue extends BaseQueue {
                 );
                 return;
             }
+
+            // Nothing outlives the process here, so there is nowhere to
+            // keep a replay once we are shutting down
+            if (this.closing) return;
 
             const timer = setTimeout(() => {
                 this.retryTimers.delete(timer);
@@ -86,7 +96,7 @@ export class AsyncQueue extends BaseQueue {
         }, concurrency);
 
         if (this.settings.debug) {
-            Logger.debug(`${queueName} setup!`);
+            Logger.info(`${queueName} setup!`);
         }
     }
 
@@ -98,11 +108,30 @@ export class AsyncQueue extends BaseQueue {
     }
 
     // @spec ASYNC-CLOSE-001
-    async close(): Promise<void> {
+    close(timeoutMs: number = DEFAULT_CLOSE_TIMEOUT): Promise<void> {
+        if (!this.closing) this.closing = this.shutdown(timeoutMs);
+        return this.closing;
+    }
+
+    private async shutdown(timeoutMs: number): Promise<void> {
+        const queues = Object.values(this.queues);
+
         for (const timer of this.retryTimers) clearTimeout(timer);
         this.retryTimers.clear();
 
-        for (const q of Object.values(this.queues)) q.kill();
+        // Stop starting messages, then let the ones in progress finish
+        for (const q of queues) q.pause();
+
+        const running = (): number =>
+            queues.reduce((total, q) => total + q.running(), 0);
+
+        if (!(await this.waitUntil(() => running() === 0, timeoutMs))) {
+            Logger.warn(
+                `AsyncQueue closed with ${running()} message(s) still in progress`,
+            );
+        }
+
+        for (const q of queues) q.kill();
         this.queues = {};
     }
 }

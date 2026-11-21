@@ -11,6 +11,7 @@ function makeSettings(overrides?: Partial<NStormSettings>): NStormSettings {
         replay: false,
         replayLimit: 3,
         replayTime: 300,
+        processTimeout: 0,
         ...overrides,
     };
 }
@@ -215,5 +216,73 @@ describe("AsyncQueue", () => {
 
         expect(cb1).toHaveBeenCalledTimes(1);
         expect(cb2).not.toHaveBeenCalled();
+    });
+
+    describe("close", () => {
+        type Done = (err?: Error | null) => void;
+
+        // @spec QUEUE-CLOSE-001
+        it("should wait for a message in progress", async () => {
+            const queue = new AsyncQueue(makeSettings());
+            let finish: Done = () => {};
+            queue.process("slow", 1, (_job: unknown, done: Done) => {
+                finish = done;
+            });
+            await queue.emit("slow", { n: 1 });
+            await new Promise((r) => setTimeout(r, 10));
+
+            let closed = false;
+            const closing = queue.close(1000).then(() => (closed = true));
+            await new Promise((r) => setTimeout(r, 40));
+            expect(closed).toBe(false);
+
+            finish();
+            await closing;
+            expect(closed).toBe(true);
+        });
+
+        // @spec QUEUE-CLOSE-001
+        it("should not start queued messages once closing", async () => {
+            const queue = new AsyncQueue(makeSettings());
+            let finish: Done = () => {};
+            const callback = vi.fn((_job: unknown, done: Done) => {
+                finish = done;
+            });
+            queue.process("busy", 1, callback);
+            await queue.emit("busy", { n: 1 });
+            await queue.emit("busy", { n: 2 });
+            await new Promise((r) => setTimeout(r, 10));
+
+            const closing = queue.close(1000);
+            finish();
+            await closing;
+
+            expect(callback).toHaveBeenCalledTimes(1);
+        });
+
+        // @spec QUEUE-CLOSE-003
+        it("should give up waiting at the timeout", async () => {
+            const queue = new AsyncQueue(makeSettings());
+            queue.process("stuck", 1, () => {
+                // never calls done
+            });
+            await queue.emit("stuck", { n: 1 });
+            await new Promise((r) => setTimeout(r, 10));
+
+            const before = Date.now();
+            await queue.close(50);
+
+            expect(Date.now() - before).toBeLessThan(500);
+        });
+
+        // @spec QUEUE-CLOSE-002
+        it("should be safe to call twice", async () => {
+            const queue = new AsyncQueue(makeSettings());
+            queue.process("a", 1, vi.fn());
+
+            const first = queue.close();
+            expect(queue.close()).toBe(first);
+            await first;
+        });
     });
 });

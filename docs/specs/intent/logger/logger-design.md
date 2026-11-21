@@ -12,7 +12,7 @@ A static wrapper around [winston](https://github.com/winstonjs/winston) that nSt
 
 Four levels are used: `error`, `warn`, `info`, `debug`. `log()` is an alias for `info()` and `fatal()` for `error()`; neither `log` nor `fatal` is a winston level, and writing at an unknown level makes winston print an error instead of the message.
 
-The level starts at `info`, or the value of `NSTORM_LOG_LEVEL`. `setLevel()` changes it at run time, and a topology created with `debug: true` sets it to `debug` ([TOPO-CONFIG-003](../topology/topology-specs.md)).
+The level starts at `info`, or the value of `NSTORM_LOG_LEVEL`. `setLevel()` changes it at run time. Nothing in nStorm changes it: a topology's `debug` option makes nStorm write its own internals at `info`, and leaves the level alone ([TOPO-CONFIG-003](../topology/topology-specs.md)).
 
 ## Cost
 
@@ -25,7 +25,7 @@ Arguments are joined with spaces; objects, including errors, are rendered with `
 ## Open Questions
 
 - The logger is global and console-only. A host cannot redirect nStorm's output to its own logger or silence it per topology. Should `nStorm` accept a logger in its options?
-- `debug: true` on any one topology raises the level for the whole process, and nothing lowers it again.
+- nStorm's internal messages with `debug: true` are written at `info`, so they cannot be filtered separately from an application's own `info` output.
 - An invalid `NSTORM_LOG_LEVEL` is passed straight to winston.
 - The call-site lookup depends on the file being named `Logger.ts` or `Logger.js`, so a bundler that renames or inlines it would break it.
 - `colorize` only affects object rendering and the call-site suffix; the level label is always coloured.

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { BaseBolt } from "../src/BaseBolt";
 import type { NStormSettings } from "../src/BaseBolt";
 
@@ -32,6 +32,7 @@ function makeSettings(overrides?: Partial<NStormSettings>): NStormSettings {
         replay: false,
         replayLimit: 3,
         replayTime: 300,
+        processTimeout: 0,
         ...overrides,
     };
 }
@@ -438,6 +439,96 @@ describe("BaseBolt", () => {
             const spout = new MySpout();
             await spout.start();
             expect(started).toBe(true);
+        });
+    });
+
+    describe("processTimeout", () => {
+        function timedContext(processTimeout: number) {
+            const ctx = makeMockContext();
+            ctx.settings = makeSettings({ processTimeout });
+            return ctx;
+        }
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        // @spec BOLT-PROCESS-004
+        it("should fail a message that is not finished in time", () => {
+            vi.useFakeTimers();
+            const ctx = timedContext(1000);
+            bolt.setup({ name: "slowBolt" }, ctx as any);
+            vi.spyOn(bolt, "process").mockImplementation(
+                () => new Promise<void>(() => {}),
+            );
+            bolt._init();
+
+            const mockDone = vi.fn();
+            ctx._mockProcess.mock.calls[0][2]({}, mockDone);
+
+            vi.advanceTimersByTime(999);
+            expect(mockDone).not.toHaveBeenCalled();
+
+            vi.advanceTimersByTime(1);
+            expect(mockDone).toHaveBeenCalledTimes(1);
+            expect(mockDone.mock.calls[0][0].message).toMatch(
+                /did not finish a message within 1000ms/,
+            );
+        });
+
+        // @spec BOLT-PROCESS-004, BOLT-PROCESS-002
+        it("should ignore a done that arrives after the timeout", () => {
+            vi.useFakeTimers();
+            const ctx = timedContext(1000);
+            bolt.setup({ name: "lateBolt" }, ctx as any);
+            let lateDone: (err?: Error | null) => void = () => {};
+            vi.spyOn(bolt, "process").mockImplementation(async (_m, done) => {
+                lateDone = done;
+            });
+            bolt._init();
+
+            const mockDone = vi.fn();
+            ctx._mockProcess.mock.calls[0][2]({}, mockDone);
+            vi.advanceTimersByTime(1000);
+            lateDone();
+
+            expect(mockDone).toHaveBeenCalledTimes(1);
+            expect(mockDone.mock.calls[0][0]).toBeInstanceOf(Error);
+        });
+
+        // @spec BOLT-PROCESS-004
+        it("should not fail a message that finishes in time", () => {
+            vi.useFakeTimers();
+            const ctx = timedContext(1000);
+            bolt.setup({ name: "quickBolt" }, ctx as any);
+            vi.spyOn(bolt, "process").mockImplementation(async (_m, done) => {
+                done();
+            });
+            bolt._init();
+
+            const mockDone = vi.fn();
+            ctx._mockProcess.mock.calls[0][2]({}, mockDone);
+            vi.advanceTimersByTime(5000);
+
+            expect(mockDone).toHaveBeenCalledTimes(1);
+            expect(mockDone).toHaveBeenCalledWith(undefined);
+        });
+
+        // @spec BOLT-PROCESS-004
+        it("should wait indefinitely when no timeout is set", () => {
+            vi.useFakeTimers();
+            const ctx = timedContext(0);
+            bolt.setup({ name: "patientBolt" }, ctx as any);
+            vi.spyOn(bolt, "process").mockImplementation(
+                () => new Promise<void>(() => {}),
+            );
+            bolt._init();
+
+            const mockDone = vi.fn();
+            ctx._mockProcess.mock.calls[0][2]({}, mockDone);
+            vi.advanceTimersByTime(24 * 60 * 60 * 1000);
+
+            expect(mockDone).not.toHaveBeenCalled();
         });
     });
 });

@@ -26,6 +26,7 @@ export class nStorm {
 
     private isSetup = false;
     private isStarted = false;
+    private stopping: Promise<void> | null = null;
 
     // @spec TOPO-CONFIG-001, TOPO-CONFIG-002, TOPO-CONFIG-003
     constructor(options?: DeepPartial<NStormSettings>) {
@@ -40,6 +41,7 @@ export class nStorm {
             replay: true,
             replayLimit: 3,
             replayTime: 300,
+            processTimeout: 0,
         };
 
         this.settings = {
@@ -47,10 +49,6 @@ export class nStorm {
             ...defined(options),
             redis: { ...defaults.redis, ...defined(options?.redis) },
         } as NStormSettings;
-
-        if (this.settings.debug) {
-            Logger.setLevel("debug");
-        }
 
         switch (this.settings.queue) {
             case "simple":
@@ -127,8 +125,12 @@ export class nStorm {
      * source block whose start() runs for a long time does not hold up the
      * others. Resolves when they have all returned.
      */
-    // @spec TOPO-START-001, TOPO-START-002, TOPO-START-003
+    // @spec TOPO-START-001, TOPO-START-002, TOPO-START-003, TOPO-START-004
     async start(): Promise<void> {
+        if (this.stopping) {
+            throw new Error("This topology has been stopped");
+        }
+
         if (this.isStarted) {
             throw new Error("start() has already been called");
         }
@@ -140,30 +142,49 @@ export class nStorm {
         this.isStarted = true;
 
         if (this.settings.debug) {
-            Logger.debug("Starting cloud");
+            Logger.info("Starting cloud");
         }
 
         // Call the queue provider's start hook
         await this.queue.start();
 
-        // Now call the start methods of all the blocks
-        await Promise.all(this.blocks.map(async (block) => block.start()));
+        // Now call the start methods of all the blocks. If any of them
+        // fails, do not leave the rest running half-started.
+        try {
+            await Promise.all(this.blocks.map(async (block) => block.start()));
+        } catch (err) {
+            await this.stop().catch((stopErr) => {
+                Logger.error("Error stopping after a failed start; ", stopErr);
+            });
+            throw err;
+        }
 
         if (this.settings.debug) {
-            Logger.debug("Cloud started");
+            Logger.info("Cloud started");
         }
     }
 
     /**
-     * Stop the topology: calls every block's stop() hook, then stops consuming
-     * and closes every connection the queue provider opened. nStorm installs
-     * no signal handlers - call this from your own SIGINT/SIGTERM handler
-     * (ADR-0001).
+     * Stop the topology: call every block's stop() hook, stop taking
+     * messages, wait up to `timeout` milliseconds (default 30 seconds) for
+     * the ones in progress to finish, then close every connection the queue
+     * provider opened (ADR-0004).
+     *
+     * Safe to call at any point and more than once; later calls return the
+     * first call's promise. A stopped topology cannot be started again.
+     *
+     * nStorm installs no signal handlers - call this from your own
+     * SIGINT/SIGTERM handler (ADR-0001).
      */
-    // @spec TOPO-STOP-001, TOPO-STOP-002
-    async stop(): Promise<void> {
+    // @spec TOPO-STOP-001, TOPO-STOP-002, TOPO-STOP-003, TOPO-STOP-004
+    stop(options?: { timeout?: number }): Promise<void> {
+        if (!this.stopping) this.stopping = this.shutdown(options?.timeout);
+        return this.stopping;
+    }
+
+    private async shutdown(timeout?: number): Promise<void> {
         if (this.settings.debug) {
-            Logger.debug("Stopping cloud");
+            Logger.info("Stopping cloud");
         }
 
         const results = await Promise.allSettled(
@@ -176,7 +197,7 @@ export class nStorm {
             }
         }
 
-        await this.queue.close();
+        await this.queue.close(timeout);
     }
 
     /**

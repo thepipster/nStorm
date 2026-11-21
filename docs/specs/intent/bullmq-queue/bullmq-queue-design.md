@@ -26,7 +26,7 @@ Nothing is opened until `registerBlock`, so constructing a topology never touche
 
 ## Closing
 
-Workers are closed first so that in-progress jobs finish before their queues go away. The instance's lists are emptied before closing, which makes a second `close()` a no-op.
+Workers are closed first so that in-progress jobs finish before their queues go away. `worker.close()` waits for those jobs without limit, so it is raced against the close timeout; workers still busy when it expires are force-closed, and BullMQ redelivers their jobs once their locks lapse (ADR-0004). The instance's lists are emptied before closing, which makes a second `close()` a no-op.
 
 ## Debug
 

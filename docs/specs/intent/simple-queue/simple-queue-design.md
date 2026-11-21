@@ -12,7 +12,7 @@ Each block has one Redis list at `[<redis.prefix>:]<cloudName>-<blockName>:sq-jo
 { "data": { "…the message…" }, "attempt": 1 }
 ```
 
-`attempt` counts deliveries, starting at 1. An item with no envelope (a bare message, as 4.0 and earlier wrote) is read as attempt 1. An item that is not valid JSON is logged and dropped; it cannot be delivered, and leaving it would block the queue.
+`attempt` counts deliveries, starting at 1. An item that is not valid JSON, or is not an envelope, is logged and dropped; it cannot be delivered, and leaving it would block the queue.
 
 ## Consuming
 
@@ -28,11 +28,20 @@ A read error is logged and retried after a second.
 
 When a consumer fails a message that has attempts left, a timer waits `replayTime` and then pushes the envelope back with `attempt` incremented. When none are left, the message is logged and dropped.
 
-The message is out of Redis from the moment it is popped until it is pushed back. A process that dies in that window loses it (ADR-0002).
+The message is out of Redis from the moment it is popped until it is pushed back. A process that dies in that window loses it (ADR-0002). A clean close does not: see below.
 
 ## Connections and closing
 
-One shared connection for writes, opened on first use, plus one blocking connection per consuming block. `close()` stops the loops, cancels pending replay timers and disconnects every connection; disconnecting aborts any `BLPOP` in flight.
+One shared connection for writes, opened on first use, plus one blocking connection per consuming block.
+
+`close(timeoutMs)` works in this order (ADR-0004):
+
+1. Mark every poll loop inactive and wait for the loops to exit. A `BLPOP` already in flight is allowed to return, which takes at most its one-second timeout, because aborting it by disconnecting could lose a message Redis had already popped. If it does return a message, that message is pushed back to the _front_ of the list, undelivered.
+2. Push every message that is waiting out its replay delay back to Redis now, with its attempt incremented.
+3. Wait up to `timeoutMs` for messages in progress. One that fails during this wait is pushed back at once rather than after `replayTime`.
+4. Disconnect everything. Messages still in progress are lost and a warning says how many.
+
+After close the instance refuses to reconnect; a late `emit()` or `clear()` rejects instead of opening a connection nobody will close.
 
 ## Clearing
 
@@ -40,8 +49,7 @@ One shared connection for writes, opened on first use, plus one blocking connect
 
 ## Open Questions
 
-- In-flight and waiting-to-replay messages are lost on a crash (ADR-0002). Messages cancelled by `close()` while waiting to be replayed are lost too; should `close()` push them back first?
-- `close()` does not wait for in-progress messages.
+- Messages in progress are still lost on a crash, or when a drain times out (ADR-0002).
+- Closing always waits for the blocking read in flight, up to one second, even when idle.
 - A message that exhausts `replayLimit` is only logged. There is no dead-letter list.
-- `SIMPLE-ENVELOPE-002` exists for upgrades from 4.0, but 4.0 used different key names, so those messages are never read. Is the fallback still worth keeping?
-- A user message that itself has the shape `{ data, attempt: <number> }` and was written bare would be misread as an envelope.
+- A replayed message goes to the back of the queue, so order is not preserved across a failure.

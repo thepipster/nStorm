@@ -22,10 +22,12 @@ When a task fails with attempts left, a timer waits `replayTime` and pushes it a
 
 ## Clearing and closing
 
-`clear()` cancels pending replays and removes queued tasks. `close()` does the same and discards the queues, so a later `emit()` rejects as for an unregistered block.
+`clear()` cancels pending replays and removes queued tasks.
+
+`close(timeoutMs)` cancels pending replays, pauses every queue so that no further message is started, waits up to `timeoutMs` for those in progress, then discards the queues (ADR-0004). A later `emit()` rejects as for an unregistered block. Messages queued but not started, and replays that were pending, are lost: there is no backend to return them to.
 
 ## Open Questions
 
 - Messages are not serialised, so behaviour can differ from the Redis providers (shared references, non-JSON values). Should the async provider clone through JSON to match?
 - The queue is unbounded and `emit()` applies no back-pressure, so a fast source can exhaust memory.
-- `close()` abandons in-progress messages rather than waiting for them.
+- A drain does not process messages that were queued but not started. For a single-process batch job, "finish the queue, then stop" may be what is wanted.

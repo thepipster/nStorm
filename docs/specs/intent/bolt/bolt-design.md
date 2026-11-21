@@ -33,6 +33,12 @@ The returned promise rejects on failure, with a logging `catch` attached interna
 
 `done` is wrapped in `once()`, so whichever outcome arrives first is the only one the provider sees. A `process()` that calls `done()` and then throws has succeeded; the later error is logged and otherwise ignored.
 
+### Timeout
+
+With the `processTimeout` setting above zero, a timer starts with each message and fails it if the block has not completed it in time. This frees the concurrency slot and lets the message be replayed.
+
+It cannot cancel the block's work. JavaScript offers no way to stop a running async function, so the original `process()` carries on, and its eventual `done` is ignored. A replay can therefore run while the first attempt is still going. That is why the timeout is off by default and blocks that use it must tolerate a message being handled twice.
+
 The base `process()` acknowledges immediately, so a source-only block that is sent a message by mistake does not hold a concurrency slot forever.
 
 ## Lifecycle hooks
@@ -41,6 +47,7 @@ The base `process()` acknowledges immediately, so a source-only block that is se
 
 ## Open Questions
 
-- A `process()` that neither calls `done` nor throws holds its concurrency slot indefinitely. There is no timeout. Should there be one, and should it fail the message?
+- With `processTimeout` off (the default), a `process()` that never completes still holds its slot forever. Should a generous default replace "off" in a later major version?
+- The timeout is one value for the whole topology. A per-block override would suit topologies that mix fast and slow blocks.
 - `emit()` logs a failure even when the caller also handles the rejection, so it can be reported twice.
 - If one subscriber's queue rejects, the others may already have accepted the message. A caller that retries the emit will duplicate it for those subscribers.

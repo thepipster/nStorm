@@ -63,6 +63,7 @@ function makeSettings(overrides?: Partial<NStormSettings>): NStormSettings {
         replay: true,
         replayLimit: 3,
         replayTime: 300,
+        processTimeout: 0,
         ...overrides,
     };
 }
@@ -334,6 +335,36 @@ describe("BullMQQueue", () => {
 
             expect(mockWorkerClose).toHaveBeenCalledTimes(1);
             expect(mockQueueClose).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe("close timeout", () => {
+        // @spec BULLMQ-CLOSE-001, QUEUE-CLOSE-003
+        it("should force workers closed when they are still busy at the timeout", async () => {
+            mockWorkerClose.mockImplementation((force?: boolean) =>
+                force ? Promise.resolve() : new Promise(() => {}),
+            );
+            const queue = new BullMQQueue(makeSettings());
+            await queue.registerBlock({ name: "busy" });
+            queue.process("busy", 1, vi.fn());
+
+            await queue.close(30);
+
+            expect(mockWorkerClose).toHaveBeenCalledWith(true);
+            expect(mockQueueClose).toHaveBeenCalled();
+            mockWorkerClose.mockResolvedValue(undefined);
+        });
+
+        // @spec BULLMQ-CLOSE-001
+        it("should not force workers that finish in time", async () => {
+            const queue = new BullMQQueue(makeSettings());
+            await queue.registerBlock({ name: "idle" });
+            queue.process("idle", 1, vi.fn());
+
+            await queue.close(1000);
+
+            expect(mockWorkerClose).toHaveBeenCalledTimes(1);
+            expect(mockWorkerClose).not.toHaveBeenCalledWith(true);
         });
     });
 });

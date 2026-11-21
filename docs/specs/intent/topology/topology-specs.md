@@ -14,7 +14,7 @@ If an option is explicitly set to `undefined`, then the topology shall use that 
 
 ### TOPO-CONFIG-003
 
-Where debug is on, the topology shall set the logger to the `debug` level.
+The topology shall not change the logger's level.
 
 ## Setup
 
@@ -52,6 +52,10 @@ When the topology is started, the topology shall call every block's `start()` wi
 
 If start is requested more than once, then the topology shall reject the later request.
 
+### TOPO-START-004
+
+If a block's `start()` rejects, then the topology shall stop itself and reject the start with that error.
+
 ## Stop
 
 ### TOPO-STOP-001
@@ -61,3 +65,11 @@ When the topology is stopped, the topology shall call every block's `stop()` and
 ### TOPO-STOP-002
 
 If a block's `stop()` rejects, then the topology shall still close the queue provider.
+
+### TOPO-STOP-003
+
+If stop is requested more than once, or before the topology was started, then the topology shall stop at most once and shall refuse any later start.
+
+### TOPO-STOP-004
+
+When the topology is stopped, the topology shall give messages in progress up to the requested timeout to finish before the queue provider releases its connections.

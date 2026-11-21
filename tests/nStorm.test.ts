@@ -94,16 +94,6 @@ describe("nStorm", () => {
             );
         });
 
-        // @spec TOPO-CONFIG-003
-        it("should switch the logger to debug when debug is on", () => {
-            Logger.setLevel("info");
-
-            new nStorm({ queue: "async", debug: true });
-
-            expect((Logger as any)._logger.level).toBe("debug");
-            Logger.setLevel("info");
-        });
-
         // @spec TOPO-CONFIG-002
         it("should not let an explicit undefined override a default", () => {
             const cloud = new nStorm({
@@ -590,6 +580,125 @@ describe("nStorm", () => {
             await cloud.start();
             await vi.waitFor(() => expect(attempts).toBe(3));
             await cloud.stop();
+        });
+    });
+
+    describe("logging", () => {
+        // @spec TOPO-CONFIG-003
+        it("should leave the global log level alone when debug is on", () => {
+            Logger.setLevel("warn");
+
+            new nStorm({ queue: "async", debug: true });
+
+            expect((Logger as any)._logger.level).toBe("warn");
+            Logger.setLevel("info");
+        });
+    });
+
+    describe("stop and start edge cases", () => {
+        // @spec TOPO-STOP-003
+        it("should only stop once, however often stop is called", async () => {
+            const cloud = new nStorm(makeOpts());
+            const bolt = new BaseBolt();
+            cloud.addBlock("a", bolt);
+            const stopSpy = vi.spyOn(bolt, "stop");
+            const closeSpy = vi.spyOn(cloud.queue, "close");
+            await cloud.start();
+
+            const first = cloud.stop();
+            const second = cloud.stop();
+            await Promise.all([first, second]);
+            await cloud.stop();
+
+            expect(second).toBe(first);
+            expect(stopSpy).toHaveBeenCalledTimes(1);
+            expect(closeSpy).toHaveBeenCalledTimes(1);
+        });
+
+        // @spec TOPO-STOP-003
+        it("should be safe to stop a topology that was never started", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+
+            await expect(cloud.stop()).resolves.toBeUndefined();
+        });
+
+        // @spec TOPO-STOP-003
+        it("should refuse to start once stopped", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+            await cloud.stop();
+
+            await expect(cloud.start()).rejects.toThrow(/has been stopped/);
+        });
+
+        // @spec TOPO-STOP-004
+        it("should pass the drain timeout on to the queue provider", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+            const closeSpy = vi.spyOn(cloud.queue, "close");
+            await cloud.start();
+
+            await cloud.stop({ timeout: 1234 });
+
+            expect(closeSpy).toHaveBeenCalledWith(1234);
+        });
+
+        // @spec TOPO-STOP-004
+        it("should wait for a message in progress before stop resolves", async () => {
+            const cloud = new nStorm(makeOpts());
+            let finishWork: () => void = () => {};
+            let started = false;
+            let finished = false;
+
+            class Spout extends BaseBolt {
+                async start(): Promise<void> {
+                    await this.emit({ job: 1 });
+                }
+            }
+            class Slow extends BaseBolt {
+                async process(
+                    _message: unknown,
+                    done: (err?: Error | null) => void,
+                ): Promise<void> {
+                    started = true;
+                    await new Promise<void>((r) => (finishWork = r));
+                    finished = true;
+                    done();
+                }
+            }
+
+            cloud.addBlock("spout", new Spout());
+            cloud.addBlock("slow", new Slow()).input("spout");
+            await cloud.start();
+            await vi.waitFor(() => expect(started).toBe(true));
+
+            let stopped = false;
+            const stopping = cloud.stop().then(() => (stopped = true));
+            await new Promise((r) => setTimeout(r, 40));
+            expect(stopped).toBe(false);
+
+            finishWork();
+            await stopping;
+
+            expect(finished).toBe(true);
+        });
+
+        // @spec TOPO-START-004
+        it("should stop the topology when a block fails to start", async () => {
+            const cloud = new nStorm(makeOpts());
+            const good = new BaseBolt();
+            const bad = new BaseBolt();
+            cloud.addBlock("good", good);
+            cloud.addBlock("bad", bad);
+            vi.spyOn(bad, "start").mockRejectedValue(new Error("no source"));
+            const goodStop = vi.spyOn(good, "stop");
+            const closeSpy = vi.spyOn(cloud.queue, "close");
+
+            await expect(cloud.start()).rejects.toThrow("no source");
+
+            expect(goodStop).toHaveBeenCalled();
+            expect(closeSpy).toHaveBeenCalled();
         });
     });
 });

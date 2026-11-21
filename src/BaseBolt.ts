@@ -31,7 +31,7 @@ export interface NStormSettings {
     cloudName: string;
     /** Queue provider */
     queue: "bullmq" | "async" | "simple";
-    /** Verbose logging of nStorm's internals */
+    /** Log nStorm's internals */
     debug: boolean;
     redis: {
         port: number;
@@ -48,6 +48,11 @@ export interface NStormSettings {
     replayLimit: number;
     /** Milliseconds to wait before redelivering a failed message */
     replayTime: number;
+    /**
+     * Fail a message whose block has not finished it within this many
+     * milliseconds. 0 (the default) waits forever.
+     */
+    processTimeout: number;
 }
 
 /**
@@ -73,7 +78,7 @@ export class BaseBolt {
      * A message fails (and is replayed, if the provider supports it) when
      * process() calls done(err), throws, or returns a promise that rejects.
      */
-    // @spec BOLT-PROCESS-001, BOLT-PROCESS-002
+    // @spec BOLT-PROCESS-001, BOLT-PROCESS-002, BOLT-PROCESS-004
     _init(): void {
         if (!this.context) {
             throw new Error(
@@ -81,16 +86,36 @@ export class BaseBolt {
             );
         }
 
+        const timeoutMs = this.context.settings.processTimeout;
+
         this.context.queue.process(
             this.name,
             this.limit,
             (job: unknown, done: DoneCallback) => {
-                const finish = once(done);
+                let timer: NodeJS.Timeout | undefined;
+
+                const finish = once((err) => {
+                    clearTimeout(timer);
+                    done(err);
+                });
 
                 const fail = (e: unknown): void => {
                     Logger.error(`Error in block "${this.name}"; `, e);
                     finish(e instanceof Error ? e : new Error(String(e)));
                 };
+
+                // We cannot cancel the block's work, only stop waiting for
+                // it: the message fails and its slot is freed, and whatever
+                // process() does afterwards is ignored.
+                if (timeoutMs > 0) {
+                    timer = setTimeout(() => {
+                        fail(
+                            new Error(
+                                `Block "${this.name}" did not finish a message within ${timeoutMs}ms`,
+                            ),
+                        );
+                    }, timeoutMs);
+                }
 
                 try {
                     Promise.resolve(this.process(job, finish)).catch(fail);

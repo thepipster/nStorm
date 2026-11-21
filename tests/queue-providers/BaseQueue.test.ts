@@ -11,6 +11,7 @@ function makeSettings(overrides?: Partial<NStormSettings>): NStormSettings {
         replay: false,
         replayLimit: 3,
         replayTime: 300,
+        processTimeout: 0,
         ...overrides,
     };
 }

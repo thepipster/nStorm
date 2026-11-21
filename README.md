@@ -79,7 +79,13 @@ class HeadsBolt extends BaseBolt {
 
 Call `done()` once the message has been handled. A message counts as **failed**, and is replayed, if you call `done(err)`, if `process` throws, or if the promise it returns rejects. Only the first outcome counts, so a second call to `done` is ignored.
 
-A block's concurrency slot is held until `done` is called, so a `process` that never calls it will eventually stall the block.
+A block's concurrency slot is held until `done` is called, so a `process` that never calls it will eventually stall the block. To guard against that, set `processTimeout`:
+
+```ts
+const cloud = new nStorm({ processTimeout: 60_000 });
+```
+
+A message not finished within that time fails and is replayed. nStorm cannot cancel the work already under way, so the first attempt may still be running when the replay starts. Only use a timeout with blocks that are safe to run twice for the same message.
 
 ### Emitting
 
@@ -111,13 +117,13 @@ async function main(): Promise<void> {
 main().catch((err) => Logger.error(err));
 ```
 
-| Method                          | Description                                                                                                            |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `addBlock(name, block, limit?)` | Add a block. Names must be unique. Returns the block so you can chain `.input()`. Must be called before setup.         |
-| `setupTopology()`               | Connect the blocks and create their queues. May only be called once. Optional: `start()` does it if you have not.      |
-| `reset()`                       | Delete any messages still queued for this topology. Call it between `setupTopology()` and `start()` for a clean start. |
-| `start()`                       | Start consuming and call every block's `start()`.                                                                      |
-| `stop()`                        | Call every block's `stop()`, stop consuming and close all connections.                                                 |
+| Method                          | Description                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `addBlock(name, block, limit?)` | Add a block. Names must be unique. Returns the block so you can chain `.input()`. Must be called before setup.          |
+| `setupTopology()`               | Connect the blocks and create their queues. May only be called once. Optional: `start()` does it if you have not.       |
+| `reset()`                       | Delete any messages still queued for this topology. Call it between `setupTopology()` and `start()` for a clean start.  |
+| `start()`                       | Start consuming and call every block's `start()`. If one of them fails, the topology is stopped and the error rethrown. |
+| `stop({ timeout? })`            | Call every block's `stop()`, let messages in progress finish, then close all connections. See below.                    |
 
 ### Shutting down
 
@@ -126,11 +132,22 @@ nStorm does not install any signal handlers or exit the process for you. Call `s
 ```ts
 process.once("SIGTERM", () => {
     cloud
-        .stop()
+        .stop({ timeout: 20_000 })
         .catch((err) => Logger.error(err))
         .finally(() => process.exit(0));
 });
 ```
+
+`stop()` shuts down gracefully:
+
+1. Every block's `stop()` is called, so sources stop emitting.
+2. No new messages are taken.
+3. Messages already in progress get up to `timeout` milliseconds to finish. The default is 30 seconds; choose a value shorter than the time your platform allows before it kills the process.
+4. All connections are closed.
+
+Messages that were queued but not started stay in Redis for the next worker. With the `simple` provider, messages waiting to be replayed are put back in Redis first, so a clean stop loses nothing unless the timeout expires. With the `async` provider nothing survives the process, so anything not started is discarded.
+
+`stop()` is safe to call more than once, or before `start()`. A stopped topology cannot be started again; create a new one.
 
 ### Parallelism
 
@@ -171,19 +188,20 @@ A message is delivered only if **every** key in the filter is present on the mes
 
 Pass these to `new nStorm(options)`. All are optional.
 
-| Option           | Default        | Description                                                                             |
-| ---------------- | -------------- | --------------------------------------------------------------------------------------- |
-| `cloudName`      | `"stormcloud"` | Name of the topology. Namespaces its queues, so several topologies can share one Redis. |
-| `queue`          | `"bullmq"`     | Queue provider: `"bullmq"`, `"simple"` or `"async"`. Anything else throws.              |
-| `redis.host`     | `"127.0.0.1"`  | Redis host.                                                                             |
-| `redis.port`     | `6379`         | Redis port.                                                                             |
-| `redis.user`     |                | Redis ACL username.                                                                     |
-| `redis.password` |                | Redis password.                                                                         |
-| `redis.prefix`   |                | Prefix for every Redis key nStorm writes.                                               |
-| `replay`         | `true`         | Deliver a failed message again. With `false`, each message is attempted once.           |
-| `replayLimit`    | `3`            | Total number of times a message is delivered before it is given up on.                  |
-| `replayTime`     | `300`          | Milliseconds to wait before delivering a failed message again.                          |
-| `debug`          | `false`        | Log nStorm's internals, and set the logger to the `debug` level.                        |
+| Option           | Default        | Description                                                                                      |
+| ---------------- | -------------- | ------------------------------------------------------------------------------------------------ |
+| `cloudName`      | `"stormcloud"` | Name of the topology. Namespaces its queues, so several topologies can share one Redis.          |
+| `queue`          | `"bullmq"`     | Queue provider: `"bullmq"`, `"simple"` or `"async"`. Anything else throws.                       |
+| `redis.host`     | `"127.0.0.1"`  | Redis host.                                                                                      |
+| `redis.port`     | `6379`         | Redis port.                                                                                      |
+| `redis.user`     |                | Redis ACL username.                                                                              |
+| `redis.password` |                | Redis password.                                                                                  |
+| `redis.prefix`   |                | Prefix for every Redis key nStorm writes.                                                        |
+| `replay`         | `true`         | Deliver a failed message again. With `false`, each message is attempted once.                    |
+| `replayLimit`    | `3`            | Total number of times a message is delivered before it is given up on.                           |
+| `replayTime`     | `300`          | Milliseconds to wait before delivering a failed message again.                                   |
+| `processTimeout` | `0`            | Fail a message whose block has not finished it within this many milliseconds. `0` waits forever. |
+| `debug`          | `false`        | Log nStorm's internals.                                                                          |
 
 ### Queue providers
 
@@ -214,19 +232,20 @@ Logger.setLevel("warn"); // "error" | "warn" | "info" | "debug"
 Logger.stackTraces = false; // don't append the calling file and line
 ```
 
-The default level is `info`, or the value of the `NSTORM_LOG_LEVEL` environment variable. Creating a topology with `debug: true` switches it to `debug`.
+The default level is `info`, or the value of the `NSTORM_LOG_LEVEL` environment variable. The level is shared by the whole process, and nStorm never changes it.
 
 ## Upgrading from 4.0
 
 - **Filters are stricter.** Every key in a filter must now be present and equal. Previously only the first key found was checked, and a message missing the key was let through.
-- **Shutdown is yours.** nStorm no longer handles `SIGINT`/`SIGTERM` or calls `process.exit()`. Call `cloud.stop()` yourself.
+- **Shutdown is yours.** nStorm no longer handles `SIGINT`/`SIGTERM` or calls `process.exit()`. Call `cloud.stop()` yourself. It waits (30 seconds by default) for messages in progress to finish.
 - **Failures in an `async process()` are now caught** and fail the message, rather than surfacing as an unhandled rejection.
 - **`emit()` returns a promise**, on blocks and on queue providers. A custom queue provider's `emit(blockName, message)` should return a promise, and no longer receives the settings as a third argument. Providers can also implement `close()`.
 - **`setupTopology()` and `start()` may only be called once**, and blocks cannot be added after setup.
 - **An unknown `queue` value throws** instead of quietly using the `async` provider.
-- **`simple` provider keys changed** from `<block>:sq-jobs` to `<cloudName>-<block>:sq-jobs`, and messages are stored in a wrapper that tracks attempts. Messages left in the old keys are not picked up; drain them before upgrading. `reset()` now deletes only this topology's keys.
+- **`simple` provider keys changed** from `<block>:sq-jobs` to `<cloudName>-<block>:sq-jobs`, and messages are stored in a wrapper that tracks attempts. Messages left in the old keys are not picked up, and messages in the old format are discarded; drain them before upgrading. `reset()` now deletes only this topology's keys.
 - **The `simple` and `async` providers now replay** failed messages, honouring `replay`, `replayLimit` and `replayTime`.
-- **The default log level is `info`**, was `debug`.
+- **The default log level is `info`**, was `debug`. The `debug` option does not affect the log level.
+- **New `processTimeout` option**, off by default.
 - **Removed** because they did nothing: the `metaLogging` option, `BaseBolt.ack()` and `BaseBolt.threads`.
 - A block that does not override `process()` now acknowledges messages instead of leaving them pending.
 

@@ -15,6 +15,7 @@ Rules:
 | [0001](0001-host-owns-process-lifecycle.md)         | The host application owns the process lifecycle             | Accepted |
 | [0002](0002-simple-queue-at-most-once-in-flight.md) | SimpleQueue stays at-most-once for in-flight messages       | Accepted |
 | [0003](0003-emit-rejects-but-is-safe-unawaited.md)  | `emit()` rejects on failure but is safe to leave un-awaited | Accepted |
+| [0004](0004-stop-drains-with-a-timeout.md)          | Stopping drains in-progress messages, bounded by a timeout  | Accepted |
 
 ## Template
 

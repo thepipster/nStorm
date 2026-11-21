@@ -7,6 +7,7 @@ import { NStormSettings } from "../../src/BaseBolt";
 let pending: string[] = [];
 const mockRpush = vi.fn();
 const mockBlpop = vi.fn();
+const mockLpush = vi.fn();
 const mockKeys = vi.fn();
 const mockDel = vi.fn();
 const mockDisconnect = vi.fn();
@@ -15,6 +16,7 @@ vi.mock("ioredis", () => {
     const MockIORedis = vi.fn(function (this: Record<string, unknown>) {
         this.rpush = mockRpush;
         this.blpop = mockBlpop;
+        this.lpush = mockLpush;
         this.keys = mockKeys;
         this.del = mockDel;
         this.disconnect = mockDisconnect;
@@ -36,6 +38,7 @@ function makeSettings(overrides?: Partial<NStormSettings>): NStormSettings {
         replay: true,
         replayLimit: 3,
         replayTime: 5,
+        processTimeout: 0,
         ...overrides,
     };
 }
@@ -53,6 +56,7 @@ describe("SimpleQueue", () => {
         pending = [];
         mockRpush.mockResolvedValue(1);
         mockDel.mockResolvedValue(1);
+        mockLpush.mockResolvedValue(1);
         mockBlpop.mockImplementation(async (key: string) => {
             const next = pending.shift();
             if (next !== undefined) return [key, next];
@@ -201,25 +205,12 @@ describe("SimpleQueue", () => {
         });
 
         // @spec SIMPLE-ENVELOPE-002
-        it("should accept a bare message written by an older version", async () => {
-            pending.push(JSON.stringify({ legacy: true }));
-            queue = new SimpleQueue(makeSettings());
-            await queue.registerBlock({ name: "old" });
-
-            const received: unknown[] = [];
-            queue.process("old", 1, (job: unknown, done: Done) => {
-                received.push(job);
-                done();
-            });
-
-            await vi.waitFor(() =>
-                expect(received).toEqual([{ legacy: true }]),
-            );
-        });
-
-        // @spec SIMPLE-ENVELOPE-003
         it("should drop an unparseable message and keep going", async () => {
-            pending.push("{not json", envelope({ ok: true }));
+            pending.push(
+                "{not json",
+                JSON.stringify({ no: "envelope" }),
+                envelope({ ok: true }),
+            );
             queue = new SimpleQueue(makeSettings());
             await queue.registerBlock({ name: "junk" });
 
@@ -406,23 +397,144 @@ describe("SimpleQueue", () => {
             await tick(40);
             expect(mockBlpop.mock.calls.length).toBe(callsAfterClose);
         });
+    });
 
+    describe("draining on close", () => {
         // @spec QUEUE-CLOSE-001
-        it("close should cancel a pending replay", async () => {
+        it("should wait for a message in progress before disconnecting", async () => {
             pending.push(envelope({ job: 1 }));
-            queue = new SimpleQueue(makeSettings({ replayTime: 150 }));
-            await queue.registerBlock({ name: "pendingRetry" });
+            queue = new SimpleQueue(makeSettings());
+            await queue.registerBlock({ name: "slow" });
+
+            let finish: Done = () => {};
+            const callback = vi.fn((_job: unknown, done: Done) => {
+                finish = done;
+            });
+            queue.process("slow", 1, callback);
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+
+            let closed = false;
+            const closing = queue.close(2000).then(() => (closed = true));
+            await tick(60);
+            expect(closed).toBe(false);
+            expect(mockDisconnect).not.toHaveBeenCalled();
+
+            finish();
+            await closing;
+            expect(mockDisconnect).toHaveBeenCalled();
+        });
+
+        // @spec QUEUE-CLOSE-003
+        it("should give up waiting at the timeout", async () => {
+            pending.push(envelope({ job: 1 }));
+            queue = new SimpleQueue(makeSettings());
+            await queue.registerBlock({ name: "stuck" });
+
+            const callback = vi.fn(() => {
+                // never calls done
+            });
+            queue.process("stuck", 1, callback);
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+
+            await queue.close(50);
+
+            expect(mockDisconnect).toHaveBeenCalled();
+        });
+
+        // @spec SIMPLE-CLOSE-001
+        it("should put a message waiting for replay straight back", async () => {
+            pending.push(envelope({ job: 1 }));
+            queue = new SimpleQueue(makeSettings({ replayTime: 60_000 }));
+            await queue.registerBlock({ name: "waiting" });
 
             const callback = vi.fn((_job: unknown, done: Done) => {
                 done(new Error("failed"));
             });
-            queue.process("pendingRetry", 1, callback);
+            queue.process("waiting", 1, callback);
             await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+            expect(mockRpush).not.toHaveBeenCalled();
 
             await queue.close();
-            await tick(250);
 
-            expect(mockRpush).not.toHaveBeenCalled();
+            expect(mockRpush).toHaveBeenCalledWith(
+                "test-cloud-waiting:sq-jobs",
+                envelope({ job: 1 }, 2),
+            );
+        });
+
+        // @spec SIMPLE-CLOSE-001
+        it("should put back at once a message that fails while closing", async () => {
+            pending.push(envelope({ job: 1 }));
+            queue = new SimpleQueue(makeSettings({ replayTime: 60_000 }));
+            await queue.registerBlock({ name: "failing" });
+
+            let finish: Done = () => {};
+            const callback = vi.fn((_job: unknown, done: Done) => {
+                finish = done;
+            });
+            queue.process("failing", 1, callback);
+            await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+
+            const closing = queue.close(2000);
+            await tick(30);
+            finish(new Error("failed during shutdown"));
+            await closing;
+
+            expect(mockRpush).toHaveBeenCalledWith(
+                "test-cloud-failing:sq-jobs",
+                envelope({ job: 1 }, 2),
+            );
+        });
+
+        // @spec SIMPLE-CLOSE-002
+        it("should hand back a message that arrives after closing began", async () => {
+            const raw = envelope({ late: true });
+            mockBlpop.mockImplementation(async (key: string) => {
+                await tick(40);
+                return [key, raw];
+            });
+            queue = new SimpleQueue(makeSettings());
+            await queue.registerBlock({ name: "late" });
+
+            const callback = vi.fn();
+            queue.process("late", 1, callback);
+            await tick(10);
+            await queue.close();
+
+            expect(callback).not.toHaveBeenCalled();
+            expect(mockLpush).toHaveBeenCalledWith(
+                "test-cloud-late:sq-jobs",
+                raw,
+            );
+        });
+
+        // @spec QUEUE-CLOSE-001
+        it("should not reconnect when used after close", async () => {
+            queue = new SimpleQueue(makeSettings());
+            await queue.registerBlock({ name: "a" });
+            await queue.emit("a", { n: 1 });
+            await queue.close();
+            const connections = vi.mocked(IORedis).mock.calls.length;
+
+            await expect(queue.emit("a", { n: 2 })).rejects.toThrow(
+                /has been closed/,
+            );
+            await expect(queue.clear()).rejects.toThrow(/has been closed/);
+
+            expect(vi.mocked(IORedis).mock.calls.length).toBe(connections);
+        });
+
+        // @spec QUEUE-CLOSE-002
+        it("should be safe to call twice", async () => {
+            queue = new SimpleQueue(makeSettings());
+            await queue.registerBlock({ name: "a" });
+            queue.process("a", 1, vi.fn());
+
+            const first = queue.close();
+            expect(queue.close()).toBe(first);
+            await first;
+
+            expect(mockDisconnect).toHaveBeenCalledTimes(1);
         });
     });
 });

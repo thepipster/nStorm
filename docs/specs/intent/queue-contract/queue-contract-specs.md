@@ -48,11 +48,15 @@ The queue provider shall not open a backend connection when it is constructed.
 
 ### QUEUE-CLOSE-001
 
-When closed, the queue provider shall stop delivering messages and release every connection, worker and timer it opened.
+When closed, the queue provider shall stop taking messages, wait for the messages in progress to finish, and then release every connection, worker and timer it opened.
 
 ### QUEUE-CLOSE-002
 
 If the queue provider is closed more than once, then the later calls shall have no effect.
+
+### QUEUE-CLOSE-003
+
+If messages are still in progress when the close timeout expires, then the queue provider shall release its resources without waiting any longer.
 
 ### QUEUE-SIGNAL-001
 

@@ -13,7 +13,7 @@ Source: `src/queue-providers/BaseQueue.ts`. Requirements: [queue-contract-specs.
 | `start()`                       | topology, at start | Optional hook.                                                                           |
 | `emit(blockName, message)`      | block              | Enqueue for that block. Resolves when accepted, rejects when not.                        |
 | `clear()`                       | topology `reset()` | Delete this topology's queued messages.                                                  |
-| `close()`                       | topology `stop()`  | Stop delivering; release every connection, worker and timer.                             |
+| `close(timeoutMs)`              | topology `stop()`  | Stop taking messages, wait for those in progress up to the timeout, release everything.  |
 
 ## Shared helpers
 
@@ -27,16 +27,17 @@ A message fails when its consumer calls `done(err)` or throws. A failed message 
 
 ## Resources and lifecycle
 
-A provider opens nothing in its constructor; connections are made at setup or first use. Everything it opens is tracked on the instance and released by `close()`. A provider never registers process signal handlers or exits the process (ADR-0001).
+A provider opens nothing in its constructor; connections are made at setup or first use. Everything it opens is tracked on the instance and released by `close()`.
+
+`close(timeoutMs)` drains: stop taking messages, wait for the ones in progress for at most `timeoutMs` (default 30 seconds, `DEFAULT_CLOSE_TIMEOUT`), then release everything regardless. Before disconnecting, a provider returns to its backend whatever it still holds. It is idempotent, and a provider is not used again after it (ADR-0004). `waitUntil()` is the shared helper for the wait. A provider never registers process signal handlers or exits the process (ADR-0001).
 
 ## Proven against
 
-All provider behaviour is unit-tested against mocked `bullmq` and `ioredis`. On 2026-11-21 the three providers were also run end to end against a real local Redis for filtering, replay after failure and clean exit after `stop()`. Connection loss, concurrent workers and crash recovery have not been exercised against a real backend.
+All provider behaviour is unit-tested against mocked `bullmq` and `ioredis`. On 2026-11-21 the three providers were also run end to end against a real local Redis for filtering, replay after failure, the processing timeout, draining a message in progress on `stop()`, and clean process exit afterwards. Connection loss, concurrent workers, crash recovery and a drain that times out have not been exercised against a real backend.
 
 ## Open Questions
 
-- `QUEUE-CLOSE-002` (closing twice is harmless) is tested only for the BullMQ provider.
 - `QUEUE-SIGNAL-001` and `QUEUE-CONNECT-001` are not tested for the async provider, where they hold trivially.
 - `QUEUE-EMIT-002` has no async-provider test; an in-memory push cannot be refused.
 - Nothing bounds the number of messages a provider will hold, and `emit()` exerts no back-pressure.
-- The contract does not say whether `close()` waits for in-progress messages. BullMQ does; the simple and async providers abandon them.
+- Messages queued but not yet started are left alone by a drain. Whether a provider should offer "finish the queue" as well as "finish what is in progress" is undecided.

@@ -1,5 +1,8 @@
 import { NStormSettings } from "../BaseBolt";
 
+/** How long close() waits for messages in progress, unless told otherwise */
+export const DEFAULT_CLOSE_TIMEOUT = 30_000;
+
 export type DoneCallback = (err?: Error | null) => void;
 
 export type QueueCallback = (job: unknown, done: DoneCallback) => void;
@@ -96,13 +99,32 @@ export class BaseQueue {
     }
 
     /**
-     * Called by nStorm.stop(). Stop consuming and release every connection,
-     * worker and timer this provider opened. Providers never handle process
-     * signals themselves (ADR-0001).
+     * Called by nStorm.stop(). Stop taking messages, give the ones in
+     * progress up to `timeoutMs` to finish, then release every connection,
+     * worker and timer this provider opened (ADR-0004). Safe to call more
+     * than once. Providers never handle process signals themselves (ADR-0001).
      */
-    // @spec QUEUE-CLOSE-001, QUEUE-CLOSE-002, QUEUE-SIGNAL-001
-    async close(): Promise<void> {
+    // @spec QUEUE-CLOSE-001, QUEUE-CLOSE-002, QUEUE-CLOSE-003, QUEUE-SIGNAL-001
+    async close(_timeoutMs: number = DEFAULT_CLOSE_TIMEOUT): Promise<void> {
         return;
+    }
+
+    /**
+     * Resolve true as soon as `isDone()` holds, or false once `timeoutMs` has
+     * passed without it holding.
+     */
+    protected async waitUntil(
+        isDone: () => boolean,
+        timeoutMs: number,
+    ): Promise<boolean> {
+        const deadline = Date.now() + timeoutMs;
+
+        while (!isDone()) {
+            if (Date.now() >= deadline) return false;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        return true;
     }
 }
 

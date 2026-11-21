@@ -1,6 +1,6 @@
 import Logger from "../Logger";
 import { Queue, Worker, QueueEvents } from "bullmq";
-import { BaseQueue, QueueCallback } from "./BaseQueue";
+import { BaseQueue, QueueCallback, DEFAULT_CLOSE_TIMEOUT } from "./BaseQueue";
 
 /**
  * Redis-backed provider built on BullMQ. This is the default and the only
@@ -40,7 +40,7 @@ export class BullMQQueue extends BaseQueue {
         const queueName = this.queueName(block.name);
 
         if (this.settings.debug) {
-            Logger.debug(`Registering BullMQ queue ${queueName}`);
+            Logger.info(`Registering BullMQ queue ${queueName}`);
         }
 
         this.queues[queueName] = new Queue(queueName, {
@@ -121,7 +121,7 @@ export class BullMQQueue extends BaseQueue {
             });
 
             events.on("completed", ({ jobId }) => {
-                Logger.debug(`Job ${jobId} completed`);
+                Logger.info(`Job ${jobId} completed`);
             });
 
             this.queueEvents.push(events);
@@ -134,11 +134,12 @@ export class BullMQQueue extends BaseQueue {
         }
 
         if (this.settings.debug) {
-            Logger.debug("Cleared all BullMQ queues");
+            Logger.info("Cleared all BullMQ queues");
         }
     }
 
-    async close(): Promise<void> {
+    // @spec BULLMQ-CLOSE-001
+    async close(timeoutMs: number = DEFAULT_CLOSE_TIMEOUT): Promise<void> {
         const workers = this.workers;
         const events = this.queueEvents;
         const queues = Object.values(this.queues);
@@ -147,13 +148,29 @@ export class BullMQQueue extends BaseQueue {
         this.queueEvents = [];
         this.queues = {};
 
-        // Workers first, so in-flight jobs finish before the queues go away
-        await Promise.all(workers.map((w) => w.close()));
+        // Workers first, so in-flight jobs finish before the queues go away.
+        // worker.close() waits for them indefinitely, so bound it ourselves.
+        let timer: NodeJS.Timeout | undefined;
+        const graceful = Promise.all(workers.map((w) => w.close())).then(
+            () => true,
+        );
+        const timedOut = new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(false), timeoutMs);
+        });
+
+        if (!(await Promise.race([graceful, timedOut]))) {
+            Logger.warn(
+                "BullMQ workers still busy at the close timeout; forcing them closed. Their jobs will be redelivered",
+            );
+            await Promise.all(workers.map((w) => w.close(true)));
+        }
+        clearTimeout(timer);
+
         await Promise.all(events.map((e) => e.close()));
         await Promise.all(queues.map((q) => q.close()));
 
         if (this.settings.debug) {
-            Logger.debug("BullMQ closed");
+            Logger.info("BullMQ closed");
         }
     }
 }

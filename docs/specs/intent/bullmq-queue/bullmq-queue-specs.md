@@ -35,3 +35,9 @@ Where a Redis username or key prefix is configured, the BullMQ queue shall pass 
 ### BULLMQ-DEBUG-001
 
 Where debug is on, the BullMQ queue shall listen for and log job completion and failure events.
+
+## Closing
+
+### BULLMQ-CLOSE-001
+
+If workers are still busy when the close timeout expires, then the BullMQ queue shall force them closed.
