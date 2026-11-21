@@ -16,6 +16,10 @@ If an option is explicitly set to `undefined`, then the topology shall use that 
 
 The topology shall not change the logger's level.
 
+### TOPO-CONFIG-004
+
+Where the host assigns its own queue provider before the topology is set up, the topology shall use that provider.
+
 ## Setup
 
 ### TOPO-SETUP-001

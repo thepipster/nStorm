@@ -31,3 +31,7 @@ target/
 *.sublime*
 
 
+
+# Docs site build output
+docs/.vitepress/dist
+docs/.vitepress/cache

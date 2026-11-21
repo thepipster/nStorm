@@ -1,7 +1,7 @@
 export { nStorm } from "./nStorm";
 export { BaseBolt } from "./BaseBolt";
 export { default as Logger } from "./Logger";
-export { BaseQueue } from "./queue-providers/BaseQueue";
+export { BaseQueue, once } from "./queue-providers/BaseQueue";
 export { AsyncQueue } from "./queue-providers/AsyncQueue";
 export { BullMQQueue } from "./queue-providers/BullMQQueue";
 export { SimpleQueue } from "./queue-providers/SimpleQueue";

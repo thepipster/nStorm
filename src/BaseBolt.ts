@@ -66,6 +66,7 @@ export class BaseBolt {
     public debug: boolean = false;
     public name: string = "";
 
+    /** @internal Called by nStorm.addBlock() */
     setup(opts: BlockSetupOpts, context: nStorm): void {
         this.name = opts?.name ?? "";
         this.context = context;
@@ -74,6 +75,7 @@ export class BaseBolt {
     }
 
     /**
+     * @internal
      * Register this block's process() method as the consumer of its queue.
      * A message fails (and is replayed, if the provider supports it) when
      * process() calls done(err), throws, or returns a promise that rejects.
@@ -126,6 +128,7 @@ export class BaseBolt {
         );
     }
 
+    /** Resolve after `ms` milliseconds. A convenience for blocks. */
     delay(ms: number): Promise<string> {
         return new Promise((resolve) => {
             setTimeout(() => {
@@ -135,6 +138,7 @@ export class BaseBolt {
     }
 
     /**
+     * @internal
      * Does this message pass the given filter? True when there is no filter,
      * or when every key in the filter is present on the message with a
      * strictly equal value.

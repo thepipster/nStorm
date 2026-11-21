@@ -23,3 +23,5 @@ jobs:
             - run: npm run typecheck
             - run: npm test
             - run: npm run build
+            # Catches dead links in the documentation site
+            - run: npm run docs:build

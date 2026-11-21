@@ -1,6 +1,6 @@
 # Architecture decision records
 
-The decision log for nStorm: why we chose one approach over another, where that choice constrains future work. Design and requirements live in [`docs/specs/`](../specs/README.md); user-facing behaviour lives in the [README](../../README.md).
+The decision log for nStorm: why we chose one approach over another, where that choice constrains future work. Design and requirements live in [the specs](../specs/index.md); user-facing behaviour lives in the [guide](../guide/getting-started.md).
 
 Rules:
 

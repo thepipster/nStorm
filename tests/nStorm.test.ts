@@ -32,6 +32,7 @@ vi.mock("bullmq", () => {
 
 import { nStorm } from "../src/nStorm";
 import Logger from "../src/Logger";
+import { BaseQueue } from "../src/queue-providers/BaseQueue";
 
 function makeOpts(overrides?: Record<string, unknown>) {
     return {
@@ -92,6 +93,29 @@ describe("nStorm", () => {
             expect(() => new nStorm({ queue: "unknown" as any })).toThrow(
                 /Unknown queue provider "unknown"/,
             );
+        });
+
+        // @spec TOPO-CONFIG-004
+        it("should use a queue provider assigned before setup", async () => {
+            const cloud = new nStorm({ queue: "async" });
+            const custom = new BaseQueue(cloud.settings);
+            const registerSpy = vi.spyOn(custom, "registerBlock");
+            const processSpy = vi.spyOn(custom, "process");
+            const emitSpy = vi.spyOn(custom, "emit");
+            const closeSpy = vi.spyOn(custom, "close");
+            cloud.queue = custom;
+
+            const spout = new BaseBolt();
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("bolt", new BaseBolt()).input("spout");
+            await cloud.start();
+            await spout.emit({ n: 1 });
+            await cloud.stop();
+
+            expect(registerSpy).toHaveBeenCalledTimes(2);
+            expect(processSpy).toHaveBeenCalledTimes(2);
+            expect(emitSpy).toHaveBeenCalledWith("bolt", { n: 1 });
+            expect(closeSpy).toHaveBeenCalled();
         });
 
         // @spec TOPO-CONFIG-002

@@ -28,7 +28,7 @@ export class nStorm {
     private isStarted = false;
     private stopping: Promise<void> | null = null;
 
-    // @spec TOPO-CONFIG-001, TOPO-CONFIG-002, TOPO-CONFIG-003
+    // @spec TOPO-CONFIG-001, TOPO-CONFIG-002, TOPO-CONFIG-003, TOPO-CONFIG-004
     constructor(options?: DeepPartial<NStormSettings>) {
         const defaults: NStormSettings = {
             cloudName: "stormcloud",
@@ -238,6 +238,7 @@ export class nStorm {
         return block;
     }
 
+    /** @internal */
     _findBlock(name: string): BaseBolt | null {
         return this.blocks.find((block) => block.name === name) ?? null;
     }

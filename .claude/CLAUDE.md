@@ -10,6 +10,7 @@ TypeScript library (published to npm as `nstorm`) for building Storm-style proce
 - `npm run typecheck` — typecheck `src/`, `tests/` and `example/` (`tsconfig.check.json`)
 - `npm run lint` / `npm run format` — eslint / prettier (4 spaces, double quotes)
 - `npm run build` — compile `src/` to `dist/` (CommonJS + `.d.ts`)
+- `npm run docs:dev` / `npm run docs:build` — preview / build the documentation site in `docs/` (VitePress); the build fails on dead links
 - `npx tsx example/test.ts` — in-memory example (`queue: "async"`), no Redis
 - `npm run example` — BullMQ example, needs Redis on `127.0.0.1:6379`
 
@@ -29,5 +30,6 @@ TypeScript library (published to npm as `nstorm`) for building Storm-style proce
 - Nothing connects to Redis in a constructor. Connections open during setup / first use and every one must be released by `close()`.
 - The library never touches process signals or calls `process.exit()`, and never changes the global `Logger` level (`debug: true` logs internals at `info`).
 - Provider tests only prove behaviour against mocks. After changing `BullMQQueue` or `SimpleQueue`, also run a real topology against a local Redis if one is available (`redis-cli ping`), using a throwaway `cloudName`.
-- User-visible behaviour changes go in the README, including its "Upgrading" section.
+- User documentation lives in `docs/guide/` and `docs/reference/` and is published to https://thepipster.github.io/nStorm/ by `.github/workflows/docs.yml` on every push to `master`. A user-visible behaviour change must update the relevant guide page, the reference page, and `docs/guide/upgrading.md` if it is breaking. The README is only an overview that links to the site; keep its example and provider table correct but do not grow it.
+- The reference pages are written by hand (TypeDoc was dropped because it could not be installed without an unfixable `npm audit` finding), so a changed signature, option or default must be changed there too. VitePress is pinned to a 2.0 alpha for the same reason: 1.x depends on a vulnerable Vite.
 - Intent is documented in `docs/specs/` (design + EARS requirements per component) and decisions in `docs/adr/`. Tests and entry-point code carry `// @spec <ID>` comments that link to those requirements: when you change behaviour, update the requirement first, and keep the IDs on tests and code in step. `grep -rn "@spec BOLT-FILTER-001" src tests` walks the chain.

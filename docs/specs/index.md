@@ -6,7 +6,7 @@ nStorm's intent, kept as a linked chain:
 HLD  →  LLDs  →  EARS  →  Tests  →  Code
 ```
 
-The documents are the source of truth for what the library is meant to do; the code implements them. Decisions and their rationale live separately in [`docs/adr/`](../adr/README.md).
+The documents are the source of truth for what the library is meant to do; the code implements them. Decisions and their rationale live separately in [the decision records](../adr/index.md).
 
 ## Layout
 

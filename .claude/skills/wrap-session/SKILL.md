@@ -26,11 +26,13 @@ low-friction exception — write it directly.
 | **ADRs**           | `docs/adr/`                                               | made an architectural **decision** that constrains future work             |
 | **LID spec chain** | `docs/specs/`                                             | changed **design** (HLD/LLD) or **behavioural requirements** (EARS)        |
 
-nStorm is a single repo and a published library, so two existing documents are
+nStorm is a single repo and a published library, so two existing sets of documents are
 not sinks of this skill but must already be current before you wrap:
 
-- **`README.md`** — user-visible behaviour, options, and the "Upgrading" section.
-  If the session changed behaviour and the README does not say so, fix that first.
+- **The documentation site** (`docs/guide/`, `docs/reference/`) — user-visible
+  behaviour, options, and `docs/guide/upgrading.md` for breaking changes. If the
+  session changed behaviour and the site does not say so, fix that first, and run
+  `npm run docs:build` to check for dead links. The README is only an overview.
 - **`.claude/CLAUDE.md`** — commands, the architecture map, and "Things that will
   trip you up". A gotcha that every session needs goes there, not in memory.
 
@@ -150,9 +152,9 @@ requirements).
   old `Superseded by ADR-NNNN`.
 - Sections: `Status` (Accepted (date)), `Context`, `Decision`, `Consequences` (Good /
   Bad honestly), `Alternatives considered`. Add the new ADR to the
-  `docs/adr/README.md` index.
+  `docs/adr/index.md` index.
 - Cite it from code as `(ADR-NNNN)` where the decision is enforced.
-- `docs/adr/README.md` holds the template and the index. Only write an ADR for a
+- `docs/adr/index.md` holds the template and the index. Only write an ADR for a
   real decision — don't pad the log.
 
 ---
@@ -257,7 +259,7 @@ _requirement_ just gets removed and its `@spec` citations cleaned up.
 
 ### Existing nodes
 
-All seven nodes have a design and a specs file, indexed in `docs/specs/README.md`.
+All seven nodes have a design and a specs file, indexed in `docs/specs/index.md`.
 Add requirements to the node that owns the behaviour, taking the next free number in
 its subdomain. There is no HLD yet; write `high-level-design.md` only when a session
 shifts component boundaries or the provider contract.
@@ -271,7 +273,7 @@ After the user approves the plan:
 1. Write memory (already allowed), then the approved rules / agents / skills / ADRs /
    spec-chain edits.
 2. Re-run the traceability grep for any EARS IDs you added, and confirm indexes
-   (`MEMORY.md`, `docs/adr/README.md`, `docs/specs/README.md`) list the new entries.
+   (`MEMORY.md`, `docs/adr/index.md`, `docs/specs/index.md`) list the new entries.
 3. Run `npm run format` so the new markdown passes `npm run check` (Prettier covers
    `.claude/` and `docs/`).
 4. Report a short summary: per sink, what was written and where, and any **Open
@@ -285,6 +287,6 @@ After the user approves the plan:
   into an existing one when the topic already has a home.
 - **One decision, one place.** Decision → ADR. Design → HLD/LLD. Requirement → EARS.
   Standard → rule. Procedure → skill. Fact/preference → memory. User-visible
-  behaviour → README. Don't write the same thing to two sinks.
+  behaviour → the documentation site. Don't write the same thing to two sinks.
 - **Respect append-only ADRs** and **delete-don't-mark specs** — they have opposite
   history rules on purpose.

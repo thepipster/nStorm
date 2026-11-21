@@ -20,7 +20,7 @@ Publishing cannot be undone (a version number can never be reused), so steps 1-5
 Compare `package.json`'s version with `npm view nstorm version`.
 
 - If it is not greater, bump it on the branch: `npm version $ARGUMENTS --no-git-tag-version`, then commit `package.json` and `package-lock.json` together. If no argument was given, propose one from the commits and ask.
-- Check the bump is honest: `git diff origin/master...HEAD -- src/index.ts src/BaseBolt.ts src/queue-providers/BaseQueue.ts`. Removed or renamed exports, changed signatures, changed `NStormSettings` defaults or changed delivery behaviour require a major version, and a matching entry in the README "Upgrading" section.
+- Check the bump is honest: `git diff origin/master...HEAD -- src/index.ts src/BaseBolt.ts src/queue-providers/BaseQueue.ts`. Removed or renamed exports, changed signatures, changed `NStormSettings` defaults or changed delivery behaviour require a major version, and a matching entry in `docs/guide/upgrading.md`.
 
 ## 3. Verify the branch
 

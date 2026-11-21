@@ -12,6 +12,6 @@ Add a queue provider named `$ARGUMENTS`. Follow `.claude/rules/queue-providers.m
     - the `switch` in the `nStorm` constructor (`src/nStorm.ts`)
     - the exports in `src/index.ts`
 3. **Test** in `tests/queue-providers/<Name>Queue.test.ts`, mocking the client library. Cover at least: emit to an unregistered block rejects; a backend write failure rejects; a failed message is replayed up to `replayLimit` and not at all with `replay: false`; `close()` releases everything and stops delivery; a message emitted reaches the `process` callback; concurrency limit is respected; `done(err)` is handled; `clear()` only touches this topology's data. Add a `should use <Name>Queue for queue: "<name>"` case to `tests/nStorm.test.ts`.
-4. **Document** it in the README "Queue providers" table and the `queue` row of the options table.
+4. **Document** it in `docs/guide/queue-providers.md` (comparison table and its own section), the `queue` row of `docs/reference/options.md`, and the provider table in the README. Run `npm run docs:build`.
 5. **Dependencies**: a new client library must work from CommonJS. Tell the user what was added to `package.json` and why.
 6. Run the `verify` skill.

@@ -10,6 +10,8 @@ Options are merged over defaults one level deep (`redis` is merged separately). 
 
 Constructing a topology opens no connections.
 
+The `queue` property is public and may be replaced with any `BaseQueue` before setup. This is how a host supplies a provider of its own; blocks and the topology read `queue` only from setup onwards.
+
 ## Lifecycle
 
 ```
