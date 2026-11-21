@@ -4,6 +4,6 @@
         "noEmit": true,
         "rootDir": "."
     },
-    "include": ["src/**/*", "tests/**/*", "example/**/*"],
+    "include": ["src/**/*", "tests/**/*", "example/**/*", "vitest.config.mts"],
     "exclude": ["node_modules", "dist"]
 }

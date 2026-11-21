@@ -18,6 +18,8 @@ The level starts at `info`, or the value of `NSTORM_LOG_LEVEL`. `setLevel()` cha
 
 Every write checks the level first and returns immediately if the message would be discarded. Serialising arguments (`util.inspect` at unlimited depth) and capturing a stack are both expensive, and debug calls sit on message-handling paths.
 
+`Logger.silent` discards everything, at the same early point. The test suite sets it, because tests of failure paths would otherwise fill the output with expected errors.
+
 ## Message format
 
 Arguments are joined with spaces; objects, including errors, are rendered with `util.inspect`. Unless `stackTraces` is turned off, the calling file, line and function are appended, found by walking the stack to the first frame outside the logger.

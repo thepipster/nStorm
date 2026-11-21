@@ -50,6 +50,16 @@ Turn that off with:
 Logger.stackTraces = false;
 ```
 
+## Silencing
+
+To discard all output, including nStorm's own errors:
+
+```ts
+Logger.silent = true;
+```
+
+This is mainly useful in your tests, where blocks that fail on purpose would otherwise fill the output with expected errors.
+
 ## What nStorm logs
 
 nStorm always logs errors: a block that fails, a send that fails, a message that has run out of attempts.
@@ -62,4 +72,4 @@ const cloud = new nStorm({ debug: true });
 
 ## Limitations
 
-The logger is global and console-only. nStorm cannot yet be given a logger of your own to write to, and its output cannot be redirected separately from your application's use of `Logger`.
+The logger is global and console-only. nStorm cannot yet be given a logger of your own to write to, and its output cannot be redirected or silenced separately from your application's use of `Logger`.

@@ -13,4 +13,5 @@ paths:
 - Tests are typechecked and linted by `npm run check`, not by `npm run build`.
 - Real-timer waits: prefer `await vi.waitFor(() => expect(...))` over a fixed sleep. It polls every 50ms, so any delay the test is racing against (e.g. `replayTime` before a `close()`) must be well above that.
 - A mocked blocking call (`blpop`) must yield to the event loop (a short `setTimeout`) before returning `null`, or the poll loop spins forever. Always `close()` the queue in `afterEach`.
+- `tests/setup.ts` silences `Logger` for every test, so that tests of failure paths do not print expected errors. Run `NSTORM_TEST_LOGS=1 npm test` to see the log output when debugging. A passing run should print no error lines; if one does, something is logging outside `Logger`.
 - When fixing a bug, add a test that fails without the fix. If an existing test asserts the buggy behaviour, change the test and call that out explicitly.
