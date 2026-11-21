@@ -1,81 +1,64 @@
 # nStorm
 
-A simple real-time processing system inspired by [Storm](http://storm.incubator.apache.org/) and [SimpleStorm](https://www.npmjs.org/package/simplestorm).
+A simple real-time processing system for Node.js, inspired by [Storm](https://storm.apache.org/) and [SimpleStorm](https://www.npmjs.org/package/simplestorm).
 
 ## Overview
 
-The motivation for this work is to enable the easy creation of processing blocks that can be chained together in flexibile ways, coupled with the ability to scale by adding additional servers (workers).
+nStorm lets you write small processing blocks and chain them together into a topology. Messages travel between blocks over a queue, so you can scale out by running the same topology on more servers.
 
-The high-level objectives are;
+The high-level objectives are:
 
-1. Ability to create simple processing blocks that can be easily chained together (create topologies).
-2. Easily scale by adding new servers/workers, ideally automatically.
-3. Automatic replay of messages. If a process dies, then re-send message to another worker.
-4. Robust. This is achieved through using Node's [cluster](http://nodejs.org/api/cluster.html) module and running workers in child processes that are restarted upon failure.
-
-### Dependencies
-
-To enable simple cross-server communications and replay of messages I made use of Redis, which is used for both a message store and also a pub-sub mechanism.
+1. Simple processing blocks that are easy to chain together.
+2. Scale by adding workers: every process running the same topology against the same Redis shares the work.
+3. Automatic replay of messages. If a block fails on a message, it is delivered again.
 
 ## Installation
 
-```ts
+```sh
 npm install nstorm
 ```
 
+Requires Node.js 20 or later. The default queue provider needs [Redis](https://redis.io/); the in-memory `async` provider does not.
+
 ## Usage
 
-Include nStorm by
-
 ```ts
-import { nStorm, BaseBolt } from
+import { nStorm, BaseBolt, Logger } from "nstorm";
 ```
 
-In Twitter Storm, you can create two types of blocks;
+Storm has two kinds of block: _spouts_, which are data sources, and _bolts_, which process data. nStorm has a single kind, `BaseBolt`, which can have a `start` method (a source), a `process` method (a processor), or both.
 
-1. *Spouts* are data sources, and must contain a start function that `emits` data.
-2. *bolts* Are chainable processing blocks, that must contain a process function.
+### Creating a data source
 
-nStorm uses the same concept, except we only have one type of block and they can have a `process` *and* a `start` method, thereby allowing hybrid blocks.
+Extend `BaseBolt` and override `start()`, which is called once when the topology starts. Send messages with `this.emit(data)`, where `data` is a plain object that can be serialised as JSON.
 
-The `start` method can be used to emit data, i.e. a data source, or can be used for any initialization code a block needs.
-
-### Creating a Data source
-
-Data source blocks are fairly easy to create, using the `BaseBolt` base class. The only restriction is that the block must contain a `start()` function that returns a promise. To output any messages, call the `this.emit(data)`.
-
-The data you pass should be an Array or Object.
-
-The following block demonstrates a coin toss, it randomly 'emits' a head or a tails, and emits that as an object.
+Override `stop()` to clean up when the topology is stopped.
 
 ```ts
 /**
  * Demo spout that randomly creates 'coins', either heads or tails
  */
 class CoinSpout extends BaseBolt {
+    private timer?: NodeJS.Timeout;
+
     async start(): Promise<void> {
-        const sendData = (): void => {
-            const test = Math.floor(Math.random() * 101);
-            const toss = test < 50 ? "heads" : "tails";
-            const row = { coin: toss, time: Date.now() };
+        this.timer = setInterval(() => {
+            const toss = Math.random() < 0.5 ? "heads" : "tails";
+            void this.emit({ coin: toss, time: Date.now() });
+        }, 1000);
+    }
 
-            this.emit(row);
-
-            setTimeout(() => {
-                sendData();
-            }, 1000);
-        };
-
-        sendData();
+    async stop(): Promise<void> {
+        clearInterval(this.timer);
     }
 }
 ```
 
-### Creating a Process Block
+Every block's `start()` is called at the same time, so one that runs for a long time does not delay the others.
 
-Creating a processing block is also pretty straight forward, and also extends from the `BaseBolt` class. The only restriction is that they must contain a `process` function. This function is passed a message and a `done` function that is called when the message has been processed. The message will be whatever data was emitted by a block that this block is connected to. So for example, if this was listening to the spout we just created then the message would be the result of the coin toss.
+### Creating a processing block
 
-The block can also send data using the `this.emit()` function, which allows you to pass data to other blocks. 
+Extend `BaseBolt` and override `process(message, done)`. `message` is whatever was emitted by a block this one takes input from.
 
 ```ts
 class HeadsBolt extends BaseBolt {
@@ -83,10 +66,10 @@ class HeadsBolt extends BaseBolt {
         message: Record<string, unknown>,
         done: (err?: Error | null) => void,
     ): Promise<void> {
-        Logger.info("Heads ", message.coin as string);
+        Logger.info("Heads ", message.coin);
 
-        // Pass data along
-        this.emit(message);
+        // Pass data along to any blocks listening to this one
+        await this.emit(message);
 
         // Acknowledge
         done();
@@ -94,25 +77,22 @@ class HeadsBolt extends BaseBolt {
 }
 ```
 
-### Queue Providers
+Call `done()` once the message has been handled. A message counts as **failed**, and is replayed, if you call `done(err)`, if `process` throws, or if the promise it returns rejects. Only the first outcome counts, so a second call to `done` is ignored.
 
-The default implementation uses the awesome [kue](https://github.com/Automattic/kue) under the hood. This creates a very robust system, but with some performance trade-offs. If you have a relatively simple implenetation with small jobs, then you can use the in memory 'async' implementation (uses `async.queue`).
+A block's concurrency slot is held until `done` is called, so a `process` that never calls it will eventually stall the block.
 
-Support for [featureless-job-queue](https://github.com/Neamar/featureless-job-queue) is coming soon.
+### Emitting
 
-### Setting up a toplogy
+`this.emit(message)` sends the message to every block subscribed to this one. It returns a promise that resolves once the queue has accepted the message, and rejects if it could not.
 
-Once you have created your blocks, now you can wire them up!
+Awaiting it is optional. If you do, you find out about a failed send and can react to it. If you do not, the failure is still logged and will not crash the process.
 
-Here is an example based on the bolt and spout we just created
+### Setting up a topology
+
+Once you have your blocks, wire them up:
 
 ```ts
-// Spout and Bolt implementation
-const coinTossSpout = new CoinSpout();
-const headsBolt = new HeadsBolt();
-
 const cloud = new nStorm({
-    debug: false,
     redis: {
         port: 6379,
         host: "127.0.0.1",
@@ -120,94 +100,155 @@ const cloud = new nStorm({
 });
 
 async function main(): Promise<void> {
-    // Setting up topology using the topology builder
-    cloud.addBlock("coinTossSpout", coinTossSpout);
-    cloud.addBlock("headsBolt", headsBolt).input("coinTossSpout");
+    cloud.addBlock("coinTossSpout", new CoinSpout());
+    cloud.addBlock("headsBolt", new HeadsBolt()).input("coinTossSpout", {
+        filter: { coin: "heads" },
+    });
 
-    // Setup cluster, and run topology...
-    await cloud.setupTopology();
     await cloud.start();
 }
 
 main().catch((err) => Logger.error(err));
 ```
 
-### nStorm Options
+| Method                          | Description                                                                                                            |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `addBlock(name, block, limit?)` | Add a block. Names must be unique. Returns the block so you can chain `.input()`. Must be called before setup.         |
+| `setupTopology()`               | Connect the blocks and create their queues. May only be called once. Optional: `start()` does it if you have not.      |
+| `reset()`                       | Delete any messages still queued for this topology. Call it between `setupTopology()` and `start()` for a clean start. |
+| `start()`                       | Start consuming and call every block's `start()`.                                                                      |
+| `stop()`                        | Call every block's `stop()`, stop consuming and close all connections.                                                 |
 
-When you create a nStorm cloud using `var cloud = new nStorm(<options>);` you can pass in the following options;
+### Shutting down
 
-Option | Default | Description
---- | --- | ---
-cloudName | "stormcloud" | Specify the topology name, used if you plan to run more than one topology.
-queue | 'kue' | The queue engine to use, options are 'kue', 'async' and 'featureless'
-redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
-debug | false | Turns on logging
-replayLimit | 3 | The number of times a message is replayed before its considered bad and deleted, i.e. if the same message causes an exception 3 times stop replaying the message!
-replayTime | 300 | Time (ms) between checking for failed messages
-(deprecated) reset | false | Deprecated, use `nStorm.reset()` instead. This gives you more control of how and when to reset.
-
-
-#### Parallelism
-
-By default, every time a block gets a message its processing method is called. However, you can restrict the number of instances *per worker* by specifying a limit, e.g.
+nStorm does not install any signal handlers or exit the process for you. Call `stop()` from your own handler:
 
 ```ts
-builder.addBlock("headsBolt", headsBolt, 2).input("coinTossSpout");
+process.once("SIGTERM", () => {
+    cloud
+        .stop()
+        .catch((err) => Logger.error(err))
+        .finally(() => process.exit(0));
+});
 ```
 
-Here a maximum of 2 instances of the headsBolt will run. Any messages sent to that block will be buffered (using redis) until the block is ready.
+### Parallelism
 
-Note, for this to work you must call `context.ack(message)` so nStorm knows you've finished processing the message.
-
-#### Chaining inputs
-
-Inputs can be chained, e.g.;
+By default a block processes one message at a time _per worker process_. Pass a limit as the third argument to `addBlock` to raise it:
 
 ```ts
-builder.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
+cloud.addBlock("headsBolt", headsBolt, 5).input("coinTossSpout");
 ```
 
-So, here a 'resultsBot' is getting inputs from both a `tailsBolt` and a `headsBolt`.
+Here up to 5 messages are processed by `headsBolt` at once. Further messages wait in the queue until one finishes, i.e. until `done()` is called.
 
-#### Filtering
+### Chaining inputs
 
-Inputs can be filted on a specific key and value, e.g
+A block can take input from several others:
 
 ```ts
-builder.addBlock("headsBolt", headsBolt, 1).input("coinTossSpout", {coin: "heads"});
+cloud
+    .addBlock("resultsBolt", resultsBolt)
+    .input("tailsBolt")
+    .input("headsBolt");
 ```
 
-Here the 'headsBolt' will reject any messages that do not have a "coin" key which equals "heads", i.e. it only accepts coin tosses of heads!
+A block may only list a given source once; a repeated `.input()` for the same source is ignored.
 
-### Adding remote workers
+### Filtering
 
-This is in the works, but because the system is built on top of redis this should be basically already possible......
+An input can be filtered, so that only matching messages are delivered:
 
-### Monitoring
+```ts
+cloud.addBlock("headsBolt", headsBolt).input("coinTossSpout", {
+    filter: { coin: "heads" },
+});
+```
 
-A web based graphical monitor is in the works, and coming soon. Feel free to bug me if you'd like to see an early version.
+A message is delivered only if **every** key in the filter is present on the message and strictly equal (`===`) to the filter's value. Here `headsBolt` receives `{ coin: "heads" }` but not `{ coin: "tails" }`, and not a message with no `coin` key at all.
 
-## Suggestions
+### Options
 
-Feel free to contact me at mike@arsenicsoup.com if you want to help or have suggestions.
+Pass these to `new nStorm(options)`. All are optional.
 
-## Contribution
+| Option           | Default        | Description                                                                             |
+| ---------------- | -------------- | --------------------------------------------------------------------------------------- |
+| `cloudName`      | `"stormcloud"` | Name of the topology. Namespaces its queues, so several topologies can share one Redis. |
+| `queue`          | `"bullmq"`     | Queue provider: `"bullmq"`, `"simple"` or `"async"`. Anything else throws.              |
+| `redis.host`     | `"127.0.0.1"`  | Redis host.                                                                             |
+| `redis.port`     | `6379`         | Redis port.                                                                             |
+| `redis.user`     |                | Redis ACL username.                                                                     |
+| `redis.password` |                | Redis password.                                                                         |
+| `redis.prefix`   |                | Prefix for every Redis key nStorm writes.                                               |
+| `replay`         | `true`         | Deliver a failed message again. With `false`, each message is attempted once.           |
+| `replayLimit`    | `3`            | Total number of times a message is delivered before it is given up on.                  |
+| `replayTime`     | `300`          | Milliseconds to wait before delivering a failed message again.                          |
+| `debug`          | `false`        | Log nStorm's internals, and set the logger to the `debug` level.                        |
 
-Contributions are welcome!
+### Queue providers
 
-Please feel free to [file issues](https://github.com/thepipster/nStorm/issues) and submit [pull requests](https://github.com/thepipster/nStorm/pulls).
+| Provider | Needs Redis | Shared between processes | If a block fails on a message | If the process dies mid-message |
+| -------- | ----------- | ------------------------ | ----------------------------- | ------------------------------- |
+| `bullmq` | Yes         | Yes                      | Replayed                      | Redelivered                     |
+| `simple` | Yes         | Yes                      | Replayed                      | **Lost**                        |
+| `async`  | No          | No                       | Replayed                      | **Lost**, along with the queue  |
 
-## Donate
+- **`bullmq`** (default) uses [BullMQ](https://docs.bullmq.io/). The most robust choice: a message stays in Redis until its block acknowledges it.
+- **`simple`** is a thin Redis list (`RPUSH`/`BLPOP`). Less overhead than BullMQ, but a message is removed from Redis as soon as a worker picks it up, so one that is in progress, or waiting to be replayed, when the process dies is gone.
+- **`async`** keeps everything in memory using [`async.queue`](https://caolan.github.io/async/v3/docs.html#queue). Good for tests, development and single-process jobs.
 
-If you like this, and use it, please consider donating to help support future development.
+No Redis connection is opened when you construct `nStorm`; connections are made when the topology is set up and used.
 
-<a class="coinbase-button" data-code="1f955f58582ddd191e84a8bb8fcd7a77" data-button-style="donation_small" href="https://coinbase.com/checkouts/1f955f58582ddd191e84a8bb8fcd7a77">Donate Bitcoins</a><script src="https://coinbase.com/assets/button.js" type="text/javascript"></script>
+### Adding workers
+
+With the `bullmq` or `simple` provider, run the same topology (same `cloudName`, same block names, same Redis) in as many processes or servers as you like. Each message is handled by one of them.
+
+Note that every process also runs every block's `start()`, so a source block will emit in each of them. If you want a single source, give the other processes a topology whose source block has no `start()`.
+
+### Logging
+
+`Logger` is a small wrapper around [winston](https://github.com/winstonjs/winston) that nStorm uses internally and exports for convenience. It writes to the console with `debug`, `info` (alias `log`), `warn` and `error` (alias `fatal`) methods.
+
+```ts
+Logger.setLevel("warn"); // "error" | "warn" | "info" | "debug"
+Logger.stackTraces = false; // don't append the calling file and line
+```
+
+The default level is `info`, or the value of the `NSTORM_LOG_LEVEL` environment variable. Creating a topology with `debug: true` switches it to `debug`.
+
+## Upgrading from 4.0
+
+- **Filters are stricter.** Every key in a filter must now be present and equal. Previously only the first key found was checked, and a message missing the key was let through.
+- **Shutdown is yours.** nStorm no longer handles `SIGINT`/`SIGTERM` or calls `process.exit()`. Call `cloud.stop()` yourself.
+- **Failures in an `async process()` are now caught** and fail the message, rather than surfacing as an unhandled rejection.
+- **`emit()` returns a promise**, on blocks and on queue providers. A custom queue provider's `emit(blockName, message)` should return a promise, and no longer receives the settings as a third argument. Providers can also implement `close()`.
+- **`setupTopology()` and `start()` may only be called once**, and blocks cannot be added after setup.
+- **An unknown `queue` value throws** instead of quietly using the `async` provider.
+- **`simple` provider keys changed** from `<block>:sq-jobs` to `<cloudName>-<block>:sq-jobs`, and messages are stored in a wrapper that tracks attempts. Messages left in the old keys are not picked up; drain them before upgrading. `reset()` now deletes only this topology's keys.
+- **The `simple` and `async` providers now replay** failed messages, honouring `replay`, `replayLimit` and `replayTime`.
+- **The default log level is `info`**, was `debug`.
+- **Removed** because they did nothing: the `metaLogging` option, `BaseBolt.ack()` and `BaseBolt.threads`.
+- A block that does not override `process()` now acknowledges messages instead of leaving them pending.
+
+## Development
+
+```sh
+npm test            # run the tests (no Redis needed)
+npm run check       # formatting, lint, typecheck and tests
+npm run build       # compile to dist/
+npx tsx example/test.ts   # in-memory example
+npm run example     # BullMQ example, needs Redis on 127.0.0.1:6379
+```
+
+## Contributing
+
+Contributions are welcome. Please [file issues](https://github.com/thepipster/nStorm/issues) and submit [pull requests](https://github.com/thepipster/nStorm/pulls), or contact me at mike@arsenicsoup.com.
 
 ## License
 
 The MIT License (MIT)
 
-Copyright (c) <year> <copyright holders>
+Copyright (c) 2014 Mike Pritchard
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

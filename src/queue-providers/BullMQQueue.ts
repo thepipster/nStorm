@@ -1,43 +1,50 @@
 import Logger from "../Logger";
 import { Queue, Worker, QueueEvents } from "bullmq";
-import IORedis from "ioredis";
 import { BaseQueue, QueueCallback } from "./BaseQueue";
-import { NStormSettings } from "../BaseBolt";
 
-const TTL = 10 * 60 * 1000;
-
+/**
+ * Redis-backed provider built on BullMQ. This is the default and the only
+ * provider with durable, at-least-once delivery: a message stays in Redis
+ * until its block calls `done()`, is retried on failure (`replay`,
+ * `replayLimit`, `replayTime`) and is redelivered if the worker dies.
+ *
+ * No Redis connection is opened until the topology is set up.
+ */
 export class BullMQQueue extends BaseQueue {
-    private connection: IORedis;
     private queues: Record<string, Queue> = {};
     private workers: Worker[] = [];
     private queueEvents: QueueEvents[] = [];
 
-    constructor(opts: NStormSettings) {
-        super(opts);
+    /**
+     * Options shared by every Queue / Worker / QueueEvents. BullMQ opens its
+     * own connections from these, so we never hold one ourselves.
+     */
+    private bullOptions() {
+        const { host, port, password, user, prefix } = this.settings.redis;
 
-        if (this.settings.debug) {
-            Logger.info("Using BullMQ");
-        }
-
-        this.connection = new IORedis({
-            host: opts.redis.host,
-            port: opts.redis.port,
-            password: opts.redis.password,
-            maxRetriesPerRequest: null,
-        });
+        return {
+            connection: {
+                host,
+                port,
+                password,
+                username: user,
+                maxRetriesPerRequest: null,
+            },
+            ...(prefix ? { prefix } : {}),
+        };
     }
 
     async registerBlock(block: { name: string }): Promise<void> {
-        const queueName = `${this.settings.cloudName}-${block.name}`;
+        const queueName = this.queueName(block.name);
+
+        if (this.settings.debug) {
+            Logger.debug(`Registering BullMQ queue ${queueName}`);
+        }
+
         this.queues[queueName] = new Queue(queueName, {
-            connection: {
-                host: this.settings.redis.host,
-                port: this.settings.redis.port,
-                password: this.settings.redis.password,
-                maxRetriesPerRequest: null,
-            },
+            ...this.bullOptions(),
             defaultJobOptions: {
-                attempts: this.settings.replayLimit,
+                attempts: this.maxAttempts,
                 backoff: {
                     type: "fixed",
                     delay: this.settings.replayTime,
@@ -48,43 +55,18 @@ export class BullMQQueue extends BaseQueue {
         });
     }
 
-    async start(): Promise<void> {
-        // Setup graceful shutdown
-        const shutdown = async () => {
-            if (this.settings.debug) {
-                Logger.warn("BullMQ shutdown");
-            }
-            await this.close();
-            process.exit(0);
-        };
-
-        process.once("SIGTERM", shutdown);
-        process.once("SIGINT", shutdown);
-    }
-
-    emit(
+    async emit(
         blockName: string,
         message: Record<string, unknown>,
-        _opts: NStormSettings,
-    ): void {
-        const queueName = `${this.settings.cloudName}-${blockName}`;
+    ): Promise<void> {
+        const queueName = this.queueName(blockName);
         const queue = this.queues[queueName];
 
         if (!queue) {
             throw new Error(`Queue ${queueName} is not defined!`);
         }
 
-        queue
-            .add(blockName, message, {
-                attempts: this.settings.replayLimit,
-                backoff: {
-                    type: "fixed",
-                    delay: this.settings.replayTime,
-                },
-            })
-            .catch((err) => {
-                Logger.error(err);
-            });
+        await queue.add(blockName, message);
     }
 
     process(
@@ -92,14 +74,19 @@ export class BullMQQueue extends BaseQueue {
         concurrency: number,
         callback?: QueueCallback,
     ): void {
-        const queueName = `${this.settings.cloudName}-${blockName}`;
+        const queueName = this.queueName(blockName);
 
         const worker = new Worker(
             queueName,
-            async (job) => {
+            (job) => {
                 return new Promise<void>((resolve, reject) => {
+                    if (!callback) {
+                        resolve();
+                        return;
+                    }
+
                     try {
-                        callback?.(job.data, (err?: Error | null) => {
+                        callback(job.data, (err?: Error | null) => {
                             if (err) {
                                 reject(err);
                             } else {
@@ -107,55 +94,39 @@ export class BullMQQueue extends BaseQueue {
                             }
                         });
                     } catch (e) {
-                        Logger.error("Error in process block; ", e);
                         reject(e);
                     }
                 });
             },
             {
-                connection: {
-                    host: this.settings.redis.host,
-                    port: this.settings.redis.port,
-                    password: this.settings.redis.password,
-                    maxRetriesPerRequest: null,
-                },
+                ...this.bullOptions(),
                 concurrency,
             },
         );
-
-        if (this.settings.debug) {
-            const events = new QueueEvents(queueName, {
-                connection: {
-                    host: this.settings.redis.host,
-                    port: this.settings.redis.port,
-                    password: this.settings.redis.password,
-                    maxRetriesPerRequest: null,
-                },
-            });
-
-            events.on("failed", ({ jobId, failedReason }) => {
-                Logger.error(`Job ${jobId} failed: ${failedReason}`);
-            });
-
-            events.on("completed", ({ jobId }) => {
-                if (this.settings.debug) {
-                    Logger.info(`Job ${jobId} completed`);
-                }
-            });
-
-            this.queueEvents.push(events);
-        }
 
         worker.on("error", (err) => {
             Logger.error(err);
         });
 
         this.workers.push(worker);
+
+        if (this.settings.debug) {
+            const events = new QueueEvents(queueName, this.bullOptions());
+
+            events.on("failed", ({ jobId, failedReason }) => {
+                Logger.error(`Job ${jobId} failed: ${failedReason}`);
+            });
+
+            events.on("completed", ({ jobId }) => {
+                Logger.debug(`Job ${jobId} completed`);
+            });
+
+            this.queueEvents.push(events);
+        }
     }
 
     async clear(): Promise<void> {
-        for (const queueName of Object.keys(this.queues)) {
-            const queue = this.queues[queueName];
+        for (const queue of Object.values(this.queues)) {
             await queue.obliterate({ force: true });
         }
 
@@ -165,16 +136,22 @@ export class BullMQQueue extends BaseQueue {
     }
 
     async close(): Promise<void> {
-        for (const worker of this.workers) {
-            await worker.close();
+        const workers = this.workers;
+        const events = this.queueEvents;
+        const queues = Object.values(this.queues);
+
+        this.workers = [];
+        this.queueEvents = [];
+        this.queues = {};
+
+        // Workers first, so in-flight jobs finish before the queues go away
+        await Promise.all(workers.map((w) => w.close()));
+        await Promise.all(events.map((e) => e.close()));
+        await Promise.all(queues.map((q) => q.close()));
+
+        if (this.settings.debug) {
+            Logger.debug("BullMQ closed");
         }
-        for (const events of this.queueEvents) {
-            await events.close();
-        }
-        for (const queueName of Object.keys(this.queues)) {
-            await this.queues[queueName].close();
-        }
-        this.connection.disconnect();
     }
 }
 

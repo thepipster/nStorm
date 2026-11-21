@@ -9,16 +9,28 @@ type DeepPartial<T> = {
     [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
 };
 
+/** Drop keys explicitly set to undefined so they cannot mask a default */
+function defined<T extends object>(obj: T | undefined): Partial<T> {
+    const out: Partial<T> = {};
+    for (const key of Object.keys(obj ?? {}) as Array<keyof T>) {
+        const value = (obj as T)[key];
+        if (value !== undefined) out[key] = value;
+    }
+    return out;
+}
+
 export class nStorm {
     public settings: NStormSettings;
     public blocks: BaseBolt[] = [];
     public queue: BaseQueue;
 
+    private isSetup = false;
+    private isStarted = false;
+
     constructor(options?: DeepPartial<NStormSettings>) {
         const defaults: NStormSettings = {
             cloudName: "stormcloud",
             queue: "bullmq",
-            metaLogging: true,
             debug: false,
             redis: {
                 port: 6379,
@@ -31,9 +43,13 @@ export class nStorm {
 
         this.settings = {
             ...defaults,
-            ...options,
-            redis: { ...defaults.redis, ...(options?.redis ?? {}) },
+            ...defined(options),
+            redis: { ...defaults.redis, ...defined(options?.redis) },
         } as NStormSettings;
+
+        if (this.settings.debug) {
+            Logger.setLevel("debug");
+        }
 
         switch (this.settings.queue) {
             case "simple":
@@ -42,41 +58,84 @@ export class nStorm {
             case "bullmq":
                 this.queue = new BullMQQueue(this.settings);
                 break;
-            default:
+            case "async":
                 this.queue = new AsyncQueue(this.settings);
                 break;
+            default:
+                throw new Error(
+                    `Unknown queue provider "${String(this.settings.queue)}". Use "bullmq", "simple" or "async"`,
+                );
         }
     }
 
+    /**
+     * Wire the blocks together and register them with the queue provider.
+     * Call once, after every block has been added. start() calls this for you
+     * if you have not.
+     */
     async setupTopology(): Promise<void> {
-        // Setup subscribers...
-        for (let i = 0; i < this.blocks.length; i += 1) {
-            for (let j = 0; j < this.blocks[i].inputs.length; j += 1) {
-                const inputBlock = this._findBlock(
-                    this.blocks[i].inputs[j].name,
-                );
+        if (this.isSetup) {
+            throw new Error("setupTopology() has already been called");
+        }
 
-                if (!inputBlock) {
+        // Validate every input before touching anything, so a bad topology
+        // leaves no half-wired state behind
+        const links: Array<{ source: BaseBolt; target: BaseBolt }> = [];
+
+        for (const block of this.blocks) {
+            for (const input of block.inputs) {
+                const source = this._findBlock(input.name);
+
+                if (!source) {
                     throw new Error(
-                        `For block ${this.blocks[i].name}, could not find its source block ${this.blocks[i].inputs[j].name}`,
+                        `For block ${block.name}, could not find its source block ${input.name}`,
                     );
                 }
 
-                inputBlock.subscribers.push({
-                    name: this.blocks[i].name,
-                    options: this.blocks[i].inputs[j].options,
-                });
+                links.push({ source, target: block });
             }
         }
 
-        // Initialize the blocks and register with the queue provider
-        for (let i = 0; i < this.blocks.length; i += 1) {
-            await this.queue.registerBlock(this.blocks[i]);
-            this.blocks[i]._init();
+        this.isSetup = true;
+
+        // Setup subscribers...
+        for (const block of this.blocks) block.subscribers = [];
+
+        for (const { source, target } of links) {
+            const input = target.inputs.find((i) => i.name === source.name);
+            source.subscribers.push({
+                name: target.name,
+                options: input?.options,
+            });
+        }
+
+        // Register every queue before any block starts consuming, so a block
+        // can always emit to its subscribers
+        for (const block of this.blocks) {
+            await this.queue.registerBlock(block);
+        }
+
+        for (const block of this.blocks) {
+            block._init();
         }
     }
 
+    /**
+     * Start the topology. Every block's start() is invoked together, so a
+     * source block whose start() runs for a long time does not hold up the
+     * others. Resolves when they have all returned.
+     */
     async start(): Promise<void> {
+        if (this.isStarted) {
+            throw new Error("start() has already been called");
+        }
+
+        if (!this.isSetup) {
+            await this.setupTopology();
+        }
+
+        this.isStarted = true;
+
         if (this.settings.debug) {
             Logger.debug("Starting cloud");
         }
@@ -85,15 +144,40 @@ export class nStorm {
         await this.queue.start();
 
         // Now call the start methods of all the blocks
-        for (let i = 0; i < this.blocks.length; i += 1) {
-            await this.blocks[i].start();
-        }
+        await Promise.all(this.blocks.map(async (block) => block.start()));
 
         if (this.settings.debug) {
             Logger.debug("Cloud started");
         }
     }
 
+    /**
+     * Stop the topology: calls every block's stop() hook, then stops consuming
+     * and closes every connection the queue provider opened. nStorm installs
+     * no signal handlers - call this from your own SIGINT/SIGTERM handler.
+     */
+    async stop(): Promise<void> {
+        if (this.settings.debug) {
+            Logger.debug("Stopping cloud");
+        }
+
+        const results = await Promise.allSettled(
+            this.blocks.map(async (block) => block.stop()),
+        );
+
+        for (const result of results) {
+            if (result.status === "rejected") {
+                Logger.error("Error stopping block; ", result.reason);
+            }
+        }
+
+        await this.queue.close();
+    }
+
+    /**
+     * Delete any messages still queued for this topology. Call after
+     * setupTopology(), which is when the queues become known.
+     */
     async reset(): Promise<void> {
         await this.queue.clear();
     }
@@ -103,10 +187,16 @@ export class nStorm {
      *
      * @param name The name of this block, use a unique name
      * @param block The implementation of the block
-     * @param limit maximum number of block functions that can run at one time
+     * @param limit maximum number of messages the block processes at one time
      * @returns The block (for chaining .input() calls)
      */
     addBlock(name: string, block: BaseBolt, limit?: number): BaseBolt {
+        if (this.isSetup) {
+            throw new Error(
+                `Cannot add block "${name}": the topology has already been set up`,
+            );
+        }
+
         const existing = this._findBlock(name);
         if (existing) {
             throw new Error(
@@ -122,12 +212,7 @@ export class nStorm {
     }
 
     _findBlock(name: string): BaseBolt | null {
-        for (let i = 0; i < this.blocks.length; i += 1) {
-            if (this.blocks[i].name === name) {
-                return this.blocks[i];
-            }
-        }
-        return null;
+        return this.blocks.find((block) => block.name === name) ?? null;
     }
 }
 
