@@ -7,6 +7,7 @@ TypeScript library (published to npm as `nstorm`) for building Storm-style proce
 - `npm run check` — everything CI runs: prettier check, eslint, typecheck, tests
 - `npm test` — run the vitest suite once (no Redis needed; `bullmq` and `ioredis` are mocked)
 - `npx vitest run tests/BaseBolt.test.ts` — run one test file
+- `NSTORM_TEST_LOGS=1 npm test` — run tests with nStorm's log output shown (it is silenced by default)
 - `npm run typecheck` — typecheck `src/`, `tests/` and `example/` (`tsconfig.check.json`)
 - `npm run lint` / `npm run format` — eslint / prettier (4 spaces, double quotes)
 - `npm run build` — compile `src/` to `dist/` (CommonJS + `.d.ts`)

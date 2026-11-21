@@ -38,6 +38,8 @@ class Logger {
     static colorize = true;
     /** Append the calling file / line to every message */
     static stackTraces = true;
+    /** Discard every message. Useful in tests. */
+    static silent = false;
     static serviceName = "";
     private static _logger: winston.Logger;
 
@@ -149,11 +151,11 @@ class Logger {
         Logger._logger.level = lvl;
     }
 
-    // @spec LOG-LEVEL-004, LOG-FORMAT-001, LOG-TRACE-001, LOG-TRACE-002
+    // @spec LOG-LEVEL-004, LOG-SILENT-001, LOG-FORMAT-001, LOG-TRACE-001, LOG-TRACE-002
     private static __write(level: LogLevel, args: unknown[]): void {
         // Bail out before doing any work (serialising, capturing a stack) for
         // messages that would be thrown away
-        if (!Logger._logger.isLevelEnabled(level)) return;
+        if (Logger.silent || !Logger._logger.isLevelEnabled(level)) return;
 
         let str = Logger.__serialize(args);
 

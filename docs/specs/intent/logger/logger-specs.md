@@ -43,3 +43,9 @@ While call-site reporting is on, the logger shall append the calling file and li
 ### LOG-TRACE-002
 
 While call-site reporting is off, the logger shall write the message without a call site.
+
+## Silencing
+
+### LOG-SILENT-001
+
+While silenced, the logger shall write nothing.

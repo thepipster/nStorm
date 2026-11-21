@@ -1,10 +1,17 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import Logger from "../src/Logger";
 
 const winstonLogger = (): any => (Logger as any)._logger;
 
 describe("Logger", () => {
+    // tests/setup.ts silences the logger for the whole suite; these tests
+    // need it live (winston's own output is mocked in each of them)
+    beforeEach(() => {
+        Logger.silent = false;
+    });
+
     afterEach(() => {
+        Logger.silent = true;
         vi.restoreAllMocks();
         Logger.setLevel("info");
         Logger.stackTraces = true;
@@ -108,5 +115,20 @@ describe("Logger", () => {
         const message = spy.mock.calls[0][1] as string;
         expect(message).toContain("boom");
         expect(message).toContain("id");
+    });
+
+    // @spec LOG-SILENT-001
+    it("should write nothing while silent", () => {
+        const spy = vi
+            .spyOn(winstonLogger(), "log")
+            .mockImplementation(() => winstonLogger());
+
+        Logger.silent = true;
+        Logger.error("hidden");
+        Logger.silent = false;
+        Logger.error("shown");
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][1]).toContain("shown");
     });
 });

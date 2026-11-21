@@ -39,3 +39,4 @@ The starting level is `info`, or the value of the `NSTORM_LOG_LEVEL` environment
 | -------------------- | --------- | ------- | ----------------------------------------------------------- |
 | `Logger.stackTraces` | `boolean` | `true`  | Append the calling file, line and function to each message. |
 | `Logger.colorize`    | `boolean` | `true`  | Colour printed objects and the call-site suffix.            |
+| `Logger.silent`      | `boolean` | `false` | Discard every message.                                      |
