@@ -1,390 +1,728 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BaseBolt } from '../src/BaseBolt';
-import type { NStormSettings } from '../src/BaseBolt';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { BaseBolt } from "../src/BaseBolt";
 
 // Mock all queue providers so no Redis connection is created
-vi.mock('ioredis', () => {
-  const MockIORedis = vi.fn(function (this: Record<string, unknown>) {
-    this.disconnect = vi.fn();
-  });
-  return { default: MockIORedis };
+vi.mock("ioredis", () => {
+    const MockIORedis = vi.fn(function (this: Record<string, unknown>) {
+        this.disconnect = vi.fn();
+    });
+    return { default: MockIORedis };
 });
 
-vi.mock('bullmq', () => {
-  const MockQueue = vi.fn(function (this: Record<string, unknown>) {
-    this.add = vi.fn().mockResolvedValue({ id: '1' });
-    this.obliterate = vi.fn().mockResolvedValue(undefined);
-    this.close = vi.fn().mockResolvedValue(undefined);
-  });
-  const MockWorker = vi.fn(function (this: Record<string, unknown>) {
-    this.close = vi.fn().mockResolvedValue(undefined);
-    this.on = vi.fn();
-  });
-  const MockQueueEvents = vi.fn(function (this: Record<string, unknown>) {
-    this.close = vi.fn().mockResolvedValue(undefined);
-    this.on = vi.fn();
-  });
-  return { Queue: MockQueue, Worker: MockWorker, QueueEvents: MockQueueEvents };
+vi.mock("bullmq", () => {
+    const MockQueue = vi.fn(function (this: Record<string, unknown>) {
+        this.add = vi.fn().mockResolvedValue({ id: "1" });
+        this.obliterate = vi.fn().mockResolvedValue(undefined);
+        this.close = vi.fn().mockResolvedValue(undefined);
+    });
+    const MockWorker = vi.fn(function (this: Record<string, unknown>) {
+        this.close = vi.fn().mockResolvedValue(undefined);
+        this.on = vi.fn();
+    });
+    const MockQueueEvents = vi.fn(function (this: Record<string, unknown>) {
+        this.close = vi.fn().mockResolvedValue(undefined);
+        this.on = vi.fn();
+    });
+    return {
+        Queue: MockQueue,
+        Worker: MockWorker,
+        QueueEvents: MockQueueEvents,
+    };
 });
 
-import { nStorm } from '../src/nStorm';
+import { nStorm } from "../src/nStorm";
+import Logger from "../src/Logger";
+import { BaseQueue } from "../src/queue-providers/BaseQueue";
 
 function makeOpts(overrides?: Record<string, unknown>) {
-  return {
-    queue: 'async' as const,
-    debug: false,
-    cloudName: 'test-cloud',
-    ...overrides,
-  };
+    return {
+        queue: "async" as const,
+        debug: false,
+        cloudName: "test-cloud",
+        ...overrides,
+    };
 }
 
-describe('nStorm', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  describe('constructor', () => {
-    it('should create with default settings', () => {
-      const cloud = new nStorm({ queue: 'async' });
-      expect(cloud.settings.cloudName).toBe('stormcloud');
-      expect(cloud.settings.queue).toBe('async');
-      expect(cloud.settings.debug).toBe(false);
-      expect(cloud.settings.redis.port).toBe(6379);
-      expect(cloud.settings.redis.host).toBe('127.0.0.1');
-      expect(cloud.settings.replayLimit).toBe(3);
+describe("nStorm", () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
-    it('should merge custom settings with defaults', () => {
-      const cloud = new nStorm({
-        queue: 'async',
-        cloudName: 'myCloud',
-        debug: true,
-        redis: { port: 7777 },
-      });
+    describe("constructor", () => {
+        it("should create with default settings", () => {
+            const cloud = new nStorm({ queue: "async" });
+            expect(cloud.settings.cloudName).toBe("stormcloud");
+            expect(cloud.settings.queue).toBe("async");
+            expect(cloud.settings.debug).toBe(false);
+            expect(cloud.settings.redis.port).toBe(6379);
+            expect(cloud.settings.redis.host).toBe("127.0.0.1");
+            expect(cloud.settings.replayLimit).toBe(3);
+        });
 
-      expect(cloud.settings.cloudName).toBe('myCloud');
-      expect(cloud.settings.debug).toBe(true);
-      expect(cloud.settings.redis.port).toBe(7777);
-      expect(cloud.settings.redis.host).toBe('127.0.0.1'); // preserved default
+        it("should merge custom settings with defaults", () => {
+            const cloud = new nStorm({
+                queue: "async",
+                cloudName: "myCloud",
+                debug: true,
+                redis: { port: 7777 },
+            });
+
+            expect(cloud.settings.cloudName).toBe("myCloud");
+            expect(cloud.settings.debug).toBe(true);
+            expect(cloud.settings.redis.port).toBe(7777);
+            expect(cloud.settings.redis.host).toBe("127.0.0.1"); // preserved default
+        });
+
+        it('should use AsyncQueue for queue: "async"', () => {
+            const cloud = new nStorm({ queue: "async" });
+            expect(cloud.queue.constructor.name).toBe("AsyncQueue");
+        });
+
+        it('should use BullMQQueue for queue: "bullmq"', () => {
+            const cloud = new nStorm({ queue: "bullmq" });
+            expect(cloud.queue.constructor.name).toBe("BullMQQueue");
+        });
+
+        it('should use SimpleQueue for queue: "simple"', () => {
+            const cloud = new nStorm({ queue: "simple" });
+            expect(cloud.queue.constructor.name).toBe("SimpleQueue");
+        });
+
+        // @spec TOPO-CONFIG-001
+        it("should throw for an unknown queue type", () => {
+            expect(() => new nStorm({ queue: "unknown" as any })).toThrow(
+                /Unknown queue provider "unknown"/,
+            );
+        });
+
+        // @spec TOPO-CONFIG-004
+        it("should use a queue provider assigned before setup", async () => {
+            const cloud = new nStorm({ queue: "async" });
+            const custom = new BaseQueue(cloud.settings);
+            const registerSpy = vi.spyOn(custom, "registerBlock");
+            const processSpy = vi.spyOn(custom, "process");
+            const emitSpy = vi.spyOn(custom, "emit");
+            const closeSpy = vi.spyOn(custom, "close");
+            cloud.queue = custom;
+
+            const spout = new BaseBolt();
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("bolt", new BaseBolt()).input("spout");
+            await cloud.start();
+            await spout.emit({ n: 1 });
+            await cloud.stop();
+
+            expect(registerSpy).toHaveBeenCalledTimes(2);
+            expect(processSpy).toHaveBeenCalledTimes(2);
+            expect(emitSpy).toHaveBeenCalledWith("bolt", { n: 1 });
+            expect(closeSpy).toHaveBeenCalled();
+        });
+
+        // @spec TOPO-CONFIG-002
+        it("should not let an explicit undefined override a default", () => {
+            const cloud = new nStorm({
+                queue: undefined,
+                cloudName: undefined,
+                redis: { host: undefined },
+            });
+            expect(cloud.settings.queue).toBe("bullmq");
+            expect(cloud.settings.cloudName).toBe("stormcloud");
+            expect(cloud.settings.redis.host).toBe("127.0.0.1");
+        });
+
+        it("should default to bullmq when no options provided", () => {
+            const cloud = new nStorm();
+            expect(cloud.settings.queue).toBe("bullmq");
+        });
     });
 
-    it('should use AsyncQueue for queue: "async"', () => {
-      const cloud = new nStorm({ queue: 'async' });
-      expect(cloud.queue.constructor.name).toBe('AsyncQueue');
+    describe("addBlock", () => {
+        let cloud: nStorm;
+
+        beforeEach(() => {
+            cloud = new nStorm(makeOpts());
+        });
+
+        it("should add a block to the topology", () => {
+            const bolt = new BaseBolt();
+            cloud.addBlock("myBolt", bolt);
+
+            expect(cloud.blocks).toHaveLength(1);
+            expect(cloud.blocks[0]).toBe(bolt);
+            expect(bolt.name).toBe("myBolt");
+        });
+
+        it("should set up the block with name, limit, and debug", () => {
+            const bolt = new BaseBolt();
+            cloud.addBlock("myBolt", bolt, 5);
+
+            expect(bolt.name).toBe("myBolt");
+            expect(bolt.limit).toBe(5);
+            expect(bolt.context).toBe(cloud);
+        });
+
+        it("should return the block for chaining", () => {
+            const bolt = new BaseBolt();
+            const result = cloud.addBlock("myBolt", bolt);
+
+            expect(result).toBe(bolt);
+        });
+
+        it("should support chaining .input() on the result", () => {
+            const spout = new BaseBolt();
+            const bolt = new BaseBolt();
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("bolt", bolt).input("spout");
+
+            expect(bolt.inputs).toEqual([
+                { name: "spout", options: undefined },
+            ]);
+        });
+
+        // @spec TOPO-SETUP-005
+        it("should throw when adding a block with a duplicate name", () => {
+            cloud.addBlock("dup", new BaseBolt());
+
+            expect(() => cloud.addBlock("dup", new BaseBolt())).toThrow(
+                /Block names must be unique/,
+            );
+        });
     });
 
-    it('should use BullMQQueue for queue: "bullmq"', () => {
-      const cloud = new nStorm({ queue: 'bullmq' });
-      expect(cloud.queue.constructor.name).toBe('BullMQQueue');
+    describe("_findBlock", () => {
+        it("should return the block with the matching name", () => {
+            const cloud = new nStorm(makeOpts());
+            const bolt = new BaseBolt();
+            cloud.addBlock("target", bolt);
+
+            expect(cloud._findBlock("target")).toBe(bolt);
+        });
+
+        it("should return null when no block matches", () => {
+            const cloud = new nStorm(makeOpts());
+            expect(cloud._findBlock("nonexistent")).toBeNull();
+        });
     });
 
-    it('should use SimpleQueue for queue: "simple"', () => {
-      const cloud = new nStorm({ queue: 'simple' });
-      expect(cloud.queue.constructor.name).toBe('SimpleQueue');
+    describe("setupTopology", () => {
+        // @spec TOPO-SETUP-001
+        it("should wire up subscribers based on inputs", async () => {
+            const cloud = new nStorm(makeOpts());
+            const spout = new BaseBolt();
+            const bolt = new BaseBolt();
+
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("bolt", bolt).input("spout");
+
+            await cloud.setupTopology();
+
+            expect(spout.subscribers).toEqual([
+                { name: "bolt", options: undefined },
+            ]);
+        });
+
+        // @spec TOPO-SETUP-001
+        it("should wire filter options into subscribers", async () => {
+            const cloud = new nStorm(makeOpts());
+            const spout = new BaseBolt();
+            const headsBolt = new BaseBolt();
+
+            cloud.addBlock("spout", spout);
+            cloud
+                .addBlock("heads", headsBolt)
+                .input("spout", { filter: { coin: "heads" } });
+
+            await cloud.setupTopology();
+
+            expect(spout.subscribers).toEqual([
+                { name: "heads", options: { filter: { coin: "heads" } } },
+            ]);
+        });
+
+        // @spec TOPO-SETUP-001
+        it("should support multiple inputs on a single block", async () => {
+            const cloud = new nStorm(makeOpts());
+            const s1 = new BaseBolt();
+            const s2 = new BaseBolt();
+            const results = new BaseBolt();
+
+            cloud.addBlock("s1", s1);
+            cloud.addBlock("s2", s2);
+            cloud.addBlock("results", results).input("s1").input("s2");
+
+            await cloud.setupTopology();
+
+            expect(s1.subscribers).toEqual([
+                { name: "results", options: undefined },
+            ]);
+            expect(s2.subscribers).toEqual([
+                { name: "results", options: undefined },
+            ]);
+        });
+
+        // @spec TOPO-SETUP-002
+        it("should throw when an input source block does not exist", async () => {
+            const cloud = new nStorm(makeOpts());
+            const bolt = new BaseBolt();
+            cloud.addBlock("bolt", bolt).input("nonexistent");
+
+            await expect(cloud.setupTopology()).rejects.toThrow(
+                /could not find its source block/,
+            );
+        });
+
+        it("should call registerBlock and _init on each block", async () => {
+            const cloud = new nStorm(makeOpts());
+            const bolt = new BaseBolt();
+
+            const registerSpy = vi.spyOn(cloud.queue, "registerBlock");
+            const initSpy = vi
+                .spyOn(BaseBolt.prototype, "_init")
+                .mockImplementation(() => {});
+
+            cloud.addBlock("bolt", bolt);
+            await cloud.setupTopology();
+
+            expect(registerSpy).toHaveBeenCalledWith(bolt);
+            expect(initSpy).toHaveBeenCalled();
+
+            initSpy.mockRestore();
+        });
     });
 
-    it('should default to AsyncQueue for unknown queue type', () => {
-      const cloud = new nStorm({ queue: 'unknown' as any });
-      expect(cloud.queue.constructor.name).toBe('AsyncQueue');
+    describe("setupTopology guards", () => {
+        // @spec TOPO-SETUP-003
+        it("should refuse to run twice rather than duplicate subscribers", async () => {
+            const cloud = new nStorm(makeOpts());
+            const spout = new BaseBolt();
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("bolt", new BaseBolt()).input("spout");
+
+            await cloud.setupTopology();
+            await expect(cloud.setupTopology()).rejects.toThrow(
+                /already been called/,
+            );
+
+            expect(spout.subscribers).toHaveLength(1);
+        });
+
+        // @spec TOPO-SETUP-002
+        it("should leave nothing wired when an input is invalid", async () => {
+            const cloud = new nStorm(makeOpts());
+            const spout = new BaseBolt();
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("good", new BaseBolt()).input("spout");
+            cloud.addBlock("bad", new BaseBolt()).input("nonexistent");
+
+            await expect(cloud.setupTopology()).rejects.toThrow();
+
+            expect(spout.subscribers).toEqual([]);
+        });
+
+        // @spec TOPO-SETUP-004
+        it("should refuse blocks added after setup", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+            await cloud.setupTopology();
+
+            expect(() => cloud.addBlock("late", new BaseBolt())).toThrow(
+                /already been set up/,
+            );
+        });
     });
 
-    it('should default to bullmq when no options provided', () => {
-      const cloud = new nStorm();
-      expect(cloud.settings.queue).toBe('bullmq');
-    });
-  });
+    describe("stop", () => {
+        // @spec TOPO-STOP-001
+        it("should call stop on every block and close the queue", async () => {
+            const cloud = new nStorm(makeOpts());
+            const a = new BaseBolt();
+            const b = new BaseBolt();
+            cloud.addBlock("a", a);
+            cloud.addBlock("b", b);
+            const stopA = vi.spyOn(a, "stop");
+            const stopB = vi.spyOn(b, "stop");
+            const closeSpy = vi.spyOn(cloud.queue, "close");
 
-  describe('addBlock', () => {
-    let cloud: nStorm;
+            await cloud.start();
+            await cloud.stop();
 
-    beforeEach(() => {
-      cloud = new nStorm(makeOpts());
-    });
+            expect(stopA).toHaveBeenCalled();
+            expect(stopB).toHaveBeenCalled();
+            expect(closeSpy).toHaveBeenCalled();
+        });
 
-    it('should add a block to the topology', () => {
-      const bolt = new BaseBolt();
-      cloud.addBlock('myBolt', bolt);
+        // @spec TOPO-STOP-002
+        it("should still close the queue when a block fails to stop", async () => {
+            const cloud = new nStorm(makeOpts());
+            const a = new BaseBolt();
+            cloud.addBlock("a", a);
+            vi.spyOn(a, "stop").mockRejectedValue(new Error("stop failed"));
+            const closeSpy = vi.spyOn(cloud.queue, "close");
 
-      expect(cloud.blocks).toHaveLength(1);
-      expect(cloud.blocks[0]).toBe(bolt);
-      expect(bolt.name).toBe('myBolt');
-    });
+            await cloud.start();
+            await expect(cloud.stop()).resolves.toBeUndefined();
 
-    it('should set up the block with name, limit, and debug', () => {
-      const bolt = new BaseBolt();
-      cloud.addBlock('myBolt', bolt, 5);
-
-      expect(bolt.name).toBe('myBolt');
-      expect(bolt.limit).toBe(5);
-      expect(bolt.context).toBe(cloud);
-    });
-
-    it('should return the block for chaining', () => {
-      const bolt = new BaseBolt();
-      const result = cloud.addBlock('myBolt', bolt);
-
-      expect(result).toBe(bolt);
+            expect(closeSpy).toHaveBeenCalled();
+        });
     });
 
-    it('should support chaining .input() on the result', () => {
-      const spout = new BaseBolt();
-      const bolt = new BaseBolt();
-      cloud.addBlock('spout', spout);
-      cloud.addBlock('bolt', bolt).input('spout');
+    describe("start", () => {
+        // @spec TOPO-START-001
+        it("should set up the topology itself if that has not been done", async () => {
+            const cloud = new nStorm(makeOpts());
+            const spout = new BaseBolt();
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("bolt", new BaseBolt()).input("spout");
 
-      expect(bolt.inputs).toEqual([{ name: 'spout', options: undefined }]);
+            await cloud.start();
+
+            expect(spout.subscribers).toHaveLength(1);
+        });
+
+        // @spec TOPO-START-003
+        it("should refuse to start twice", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+
+            await cloud.start();
+            await expect(cloud.start()).rejects.toThrow(/already been called/);
+        });
+
+        // @spec TOPO-START-002
+        it("should not let a long-running start() hold up other blocks", async () => {
+            const cloud = new nStorm(makeOpts());
+            let release: () => void = () => {};
+            let secondStarted = false;
+
+            class SlowSpout extends BaseBolt {
+                async start(): Promise<void> {
+                    await new Promise<void>((r) => (release = r));
+                }
+            }
+            class Second extends BaseBolt {
+                async start(): Promise<void> {
+                    secondStarted = true;
+                }
+            }
+
+            cloud.addBlock("slow", new SlowSpout());
+            cloud.addBlock("second", new Second());
+
+            const starting = cloud.start();
+            await vi.waitFor(() => expect(secondStarted).toBe(true));
+
+            release();
+            await starting;
+        });
+
+        it("should call queue.start and block.start for each block", async () => {
+            const cloud = new nStorm(makeOpts());
+            const bolt = new BaseBolt();
+            cloud.addBlock("bolt", bolt);
+
+            const queueStartSpy = vi
+                .spyOn(cloud.queue, "start")
+                .mockResolvedValue();
+            const blockStartSpy = vi.spyOn(bolt, "start").mockResolvedValue();
+
+            // Need to setup topology first (mock _init so it doesn't need queue.process)
+            vi.spyOn(BaseBolt.prototype, "_init").mockImplementation(() => {});
+            await cloud.setupTopology();
+
+            await cloud.start();
+
+            expect(queueStartSpy).toHaveBeenCalled();
+            expect(blockStartSpy).toHaveBeenCalled();
+        });
+
+        it("should call blocks in order", async () => {
+            const cloud = new nStorm(makeOpts());
+            const order: string[] = [];
+
+            class OrderBolt extends BaseBolt {
+                constructor(private label: string) {
+                    super();
+                }
+                async start(): Promise<void> {
+                    order.push(this.label);
+                }
+            }
+
+            const b1 = new OrderBolt("first");
+            const b2 = new OrderBolt("second");
+
+            cloud.addBlock("b1", b1);
+            cloud.addBlock("b2", b2);
+
+            vi.spyOn(cloud.queue, "start").mockResolvedValue();
+            vi.spyOn(BaseBolt.prototype, "_init").mockImplementation(() => {});
+            await cloud.setupTopology();
+
+            await cloud.start();
+
+            expect(order).toEqual(["first", "second"]);
+        });
     });
 
-    it('should throw when adding a block with a duplicate name', () => {
-      cloud.addBlock('dup', new BaseBolt());
+    describe("reset", () => {
+        it("should call queue.clear", async () => {
+            const cloud = new nStorm(makeOpts());
+            const clearSpy = vi.spyOn(cloud.queue, "clear").mockResolvedValue();
 
-      expect(() => cloud.addBlock('dup', new BaseBolt())).toThrow(
-        /Block names must be unique/
-      );
-    });
-  });
+            await cloud.reset();
 
-  describe('_findBlock', () => {
-    it('should return the block with the matching name', () => {
-      const cloud = new nStorm(makeOpts());
-      const bolt = new BaseBolt();
-      cloud.addBlock('target', bolt);
-
-      expect(cloud._findBlock('target')).toBe(bolt);
+            expect(clearSpy).toHaveBeenCalled();
+        });
     });
 
-    it('should return null when no block matches', () => {
-      const cloud = new nStorm(makeOpts());
-      expect(cloud._findBlock('nonexistent')).toBeNull();
-    });
-  });
+    describe("full topology integration (with AsyncQueue)", () => {
+        it("should route messages through a simple topology", async () => {
+            const cloud = new nStorm(makeOpts());
+            const received: unknown[] = [];
 
-  describe('setupTopology', () => {
-    it('should wire up subscribers based on inputs', async () => {
-      const cloud = new nStorm(makeOpts());
-      const spout = new BaseBolt();
-      const bolt = new BaseBolt();
+            class Spout extends BaseBolt {
+                async start(): Promise<void> {
+                    this.emit({ coin: "heads", value: 1 });
+                    this.emit({ coin: "tails", value: 2 });
+                }
+            }
 
-      cloud.addBlock('spout', spout);
-      cloud.addBlock('bolt', bolt).input('spout');
+            class Collector extends BaseBolt {
+                async process(
+                    message: unknown,
+                    done: (err?: Error | null) => void,
+                ): Promise<void> {
+                    received.push(message);
+                    done();
+                }
+            }
 
-      await cloud.setupTopology();
+            const spout = new Spout();
+            const collector = new Collector();
 
-      expect(spout.subscribers).toEqual([
-        { name: 'bolt', options: undefined },
-      ]);
-    });
+            cloud.addBlock("spout", spout);
+            cloud.addBlock("collector", collector).input("spout");
 
-    it('should wire filter options into subscribers', async () => {
-      const cloud = new nStorm(makeOpts());
-      const spout = new BaseBolt();
-      const headsBolt = new BaseBolt();
+            // No mocking _init here — let the real AsyncQueue wire everything up
+            await cloud.setupTopology();
+            await cloud.start();
 
-      cloud.addBlock('spout', spout);
-      cloud.addBlock('heads', headsBolt).input('spout', { filter: { coin: 'heads' } });
+            // Wait for async queue to flush
+            await new Promise((r) => setTimeout(r, 100));
 
-      await cloud.setupTopology();
+            expect(received).toHaveLength(2);
+            expect(received).toEqual(
+                expect.arrayContaining([
+                    { coin: "heads", value: 1 },
+                    { coin: "tails", value: 2 },
+                ]),
+            );
+        });
 
-      expect(spout.subscribers).toEqual([
-        { name: 'heads', options: { filter: { coin: 'heads' } } },
-      ]);
-    });
+        it("should filter messages based on subscriber options", async () => {
+            const cloud = new nStorm(makeOpts());
+            const headsReceived: unknown[] = [];
+            const tailsReceived: unknown[] = [];
 
-    it('should support multiple inputs on a single block', async () => {
-      const cloud = new nStorm(makeOpts());
-      const s1 = new BaseBolt();
-      const s2 = new BaseBolt();
-      const results = new BaseBolt();
+            class Spout extends BaseBolt {
+                async start(): Promise<void> {
+                    this.emit({ coin: "heads" });
+                    this.emit({ coin: "tails" });
+                    this.emit({ coin: "heads" });
+                }
+            }
 
-      cloud.addBlock('s1', s1);
-      cloud.addBlock('s2', s2);
-      cloud.addBlock('results', results).input('s1').input('s2');
+            class HeadsBolt extends BaseBolt {
+                async process(
+                    message: unknown,
+                    done: (err?: Error | null) => void,
+                ): Promise<void> {
+                    headsReceived.push(message);
+                    done();
+                }
+            }
 
-      await cloud.setupTopology();
+            class TailsBolt extends BaseBolt {
+                async process(
+                    message: unknown,
+                    done: (err?: Error | null) => void,
+                ): Promise<void> {
+                    tailsReceived.push(message);
+                    done();
+                }
+            }
 
-      expect(s1.subscribers).toEqual([{ name: 'results', options: undefined }]);
-      expect(s2.subscribers).toEqual([{ name: 'results', options: undefined }]);
-    });
+            const spout = new Spout();
+            const heads = new HeadsBolt();
+            const tails = new TailsBolt();
 
-    it('should throw when an input source block does not exist', async () => {
-      const cloud = new nStorm(makeOpts());
-      const bolt = new BaseBolt();
-      cloud.addBlock('bolt', bolt).input('nonexistent');
+            cloud.addBlock("spout", spout);
+            cloud
+                .addBlock("heads", heads)
+                .input("spout", { filter: { coin: "heads" } });
+            cloud
+                .addBlock("tails", tails)
+                .input("spout", { filter: { coin: "tails" } });
 
-      await expect(cloud.setupTopology()).rejects.toThrow(
-        /could not find its source block/
-      );
-    });
+            // No mocking _init here — let the real AsyncQueue wire everything up
+            await cloud.setupTopology();
+            await cloud.start();
 
-    it('should call registerBlock and _init on each block', async () => {
-      const cloud = new nStorm(makeOpts());
-      const bolt = new BaseBolt();
+            await new Promise((r) => setTimeout(r, 100));
 
-      const registerSpy = vi.spyOn(cloud.queue, 'registerBlock');
-      const initSpy = vi.spyOn(BaseBolt.prototype, '_init').mockImplementation(() => {});
+            expect(headsReceived).toHaveLength(2);
+            expect(tailsReceived).toHaveLength(1);
+        });
 
-      cloud.addBlock('bolt', bolt);
-      await cloud.setupTopology();
+        // @spec BOLT-PROCESS-001, QUEUE-REPLAY-001
+        it("should replay a message whose async process() rejects", async () => {
+            const cloud = new nStorm(
+                makeOpts({ replayLimit: 3, replayTime: 5 }),
+            );
+            let attempts = 0;
 
-      expect(registerSpy).toHaveBeenCalledWith(bolt);
-      expect(initSpy).toHaveBeenCalled();
+            class Spout extends BaseBolt {
+                async start(): Promise<void> {
+                    await this.emit({ job: 1 });
+                }
+            }
 
-      initSpy.mockRestore();
-    });
-  });
+            class Flaky extends BaseBolt {
+                async process(
+                    _message: unknown,
+                    done: (err?: Error | null) => void,
+                ): Promise<void> {
+                    attempts++;
+                    if (attempts < 3) throw new Error("not yet");
+                    done();
+                }
+            }
 
-  describe('start', () => {
-    it('should call queue.start and block.start for each block', async () => {
-      const cloud = new nStorm(makeOpts());
-      const bolt = new BaseBolt();
-      cloud.addBlock('bolt', bolt);
+            cloud.addBlock("spout", new Spout());
+            cloud.addBlock("flaky", new Flaky()).input("spout");
 
-      const queueStartSpy = vi.spyOn(cloud.queue, 'start').mockResolvedValue();
-      const blockStartSpy = vi.spyOn(bolt, 'start').mockResolvedValue();
-
-      // Need to setup topology first (mock _init so it doesn't need queue.process)
-      vi.spyOn(BaseBolt.prototype, '_init').mockImplementation(() => {});
-      await cloud.setupTopology();
-
-      await cloud.start();
-
-      expect(queueStartSpy).toHaveBeenCalled();
-      expect(blockStartSpy).toHaveBeenCalled();
-    });
-
-    it('should call blocks in order', async () => {
-      const cloud = new nStorm(makeOpts());
-      const order: string[] = [];
-
-      class OrderBolt extends BaseBolt {
-        constructor(private label: string) {
-          super();
-        }
-        async start(): Promise<void> {
-          order.push(this.label);
-        }
-      }
-
-      const b1 = new OrderBolt('first');
-      const b2 = new OrderBolt('second');
-
-      cloud.addBlock('b1', b1);
-      cloud.addBlock('b2', b2);
-
-      vi.spyOn(cloud.queue, 'start').mockResolvedValue();
-      vi.spyOn(BaseBolt.prototype, '_init').mockImplementation(() => {});
-      await cloud.setupTopology();
-
-      await cloud.start();
-
-      expect(order).toEqual(['first', 'second']);
-    });
-  });
-
-  describe('reset', () => {
-    it('should call queue.clear', async () => {
-      const cloud = new nStorm(makeOpts());
-      const clearSpy = vi.spyOn(cloud.queue, 'clear').mockResolvedValue();
-
-      await cloud.reset();
-
-      expect(clearSpy).toHaveBeenCalled();
-    });
-  });
-
-  describe('full topology integration (with AsyncQueue)', () => {
-    it('should route messages through a simple topology', async () => {
-      const cloud = new nStorm(makeOpts());
-      const received: unknown[] = [];
-
-      class Spout extends BaseBolt {
-        async start(): Promise<void> {
-          this.emit({ coin: 'heads', value: 1 });
-          this.emit({ coin: 'tails', value: 2 });
-        }
-      }
-
-      class Collector extends BaseBolt {
-        async process(
-          message: unknown,
-          done: (err?: Error | null) => void
-        ): Promise<void> {
-          received.push(message);
-          done();
-        }
-      }
-
-      const spout = new Spout();
-      const collector = new Collector();
-
-      cloud.addBlock('spout', spout);
-      cloud.addBlock('collector', collector).input('spout');
-
-      // No mocking _init here — let the real AsyncQueue wire everything up
-      await cloud.setupTopology();
-      await cloud.start();
-
-      // Wait for async queue to flush
-      await new Promise((r) => setTimeout(r, 100));
-
-      expect(received).toHaveLength(2);
-      expect(received).toEqual(
-        expect.arrayContaining([
-          { coin: 'heads', value: 1 },
-          { coin: 'tails', value: 2 },
-        ])
-      );
+            await cloud.start();
+            await vi.waitFor(() => expect(attempts).toBe(3));
+            await cloud.stop();
+        });
     });
 
-    it('should filter messages based on subscriber options', async () => {
-      const cloud = new nStorm(makeOpts());
-      const headsReceived: unknown[] = [];
-      const tailsReceived: unknown[] = [];
+    describe("logging", () => {
+        // @spec TOPO-CONFIG-003
+        it("should leave the global log level alone when debug is on", () => {
+            Logger.setLevel("warn");
 
-      class Spout extends BaseBolt {
-        async start(): Promise<void> {
-          this.emit({ coin: 'heads' });
-          this.emit({ coin: 'tails' });
-          this.emit({ coin: 'heads' });
-        }
-      }
+            new nStorm({ queue: "async", debug: true });
 
-      class HeadsBolt extends BaseBolt {
-        async process(
-          message: unknown,
-          done: (err?: Error | null) => void
-        ): Promise<void> {
-          headsReceived.push(message);
-          done();
-        }
-      }
-
-      class TailsBolt extends BaseBolt {
-        async process(
-          message: unknown,
-          done: (err?: Error | null) => void
-        ): Promise<void> {
-          tailsReceived.push(message);
-          done();
-        }
-      }
-
-      const spout = new Spout();
-      const heads = new HeadsBolt();
-      const tails = new TailsBolt();
-
-      cloud.addBlock('spout', spout);
-      cloud.addBlock('heads', heads).input('spout', { filter: { coin: 'heads' } });
-      cloud.addBlock('tails', tails).input('spout', { filter: { coin: 'tails' } });
-
-      // No mocking _init here — let the real AsyncQueue wire everything up
-      await cloud.setupTopology();
-      await cloud.start();
-
-      await new Promise((r) => setTimeout(r, 100));
-
-      expect(headsReceived).toHaveLength(2);
-      expect(tailsReceived).toHaveLength(1);
+            expect((Logger as any)._logger.level).toBe("warn");
+            Logger.setLevel("info");
+        });
     });
-  });
+
+    describe("stop and start edge cases", () => {
+        // @spec TOPO-STOP-003
+        it("should only stop once, however often stop is called", async () => {
+            const cloud = new nStorm(makeOpts());
+            const bolt = new BaseBolt();
+            cloud.addBlock("a", bolt);
+            const stopSpy = vi.spyOn(bolt, "stop");
+            const closeSpy = vi.spyOn(cloud.queue, "close");
+            await cloud.start();
+
+            const first = cloud.stop();
+            const second = cloud.stop();
+            await Promise.all([first, second]);
+            await cloud.stop();
+
+            expect(second).toBe(first);
+            expect(stopSpy).toHaveBeenCalledTimes(1);
+            expect(closeSpy).toHaveBeenCalledTimes(1);
+        });
+
+        // @spec TOPO-STOP-003
+        it("should be safe to stop a topology that was never started", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+
+            await expect(cloud.stop()).resolves.toBeUndefined();
+        });
+
+        // @spec TOPO-STOP-003
+        it("should refuse to start once stopped", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+            await cloud.stop();
+
+            await expect(cloud.start()).rejects.toThrow(/has been stopped/);
+        });
+
+        // @spec TOPO-STOP-004
+        it("should pass the drain timeout on to the queue provider", async () => {
+            const cloud = new nStorm(makeOpts());
+            cloud.addBlock("a", new BaseBolt());
+            const closeSpy = vi.spyOn(cloud.queue, "close");
+            await cloud.start();
+
+            await cloud.stop({ timeout: 1234 });
+
+            expect(closeSpy).toHaveBeenCalledWith(1234);
+        });
+
+        // @spec TOPO-STOP-004
+        it("should wait for a message in progress before stop resolves", async () => {
+            const cloud = new nStorm(makeOpts());
+            let finishWork: () => void = () => {};
+            let started = false;
+            let finished = false;
+
+            class Spout extends BaseBolt {
+                async start(): Promise<void> {
+                    await this.emit({ job: 1 });
+                }
+            }
+            class Slow extends BaseBolt {
+                async process(
+                    _message: unknown,
+                    done: (err?: Error | null) => void,
+                ): Promise<void> {
+                    started = true;
+                    await new Promise<void>((r) => (finishWork = r));
+                    finished = true;
+                    done();
+                }
+            }
+
+            cloud.addBlock("spout", new Spout());
+            cloud.addBlock("slow", new Slow()).input("spout");
+            await cloud.start();
+            await vi.waitFor(() => expect(started).toBe(true));
+
+            let stopped = false;
+            const stopping = cloud.stop().then(() => (stopped = true));
+            await new Promise((r) => setTimeout(r, 40));
+            expect(stopped).toBe(false);
+
+            finishWork();
+            await stopping;
+
+            expect(finished).toBe(true);
+        });
+
+        // @spec TOPO-START-004
+        it("should stop the topology when a block fails to start", async () => {
+            const cloud = new nStorm(makeOpts());
+            const good = new BaseBolt();
+            const bad = new BaseBolt();
+            cloud.addBlock("good", good);
+            cloud.addBlock("bad", bad);
+            vi.spyOn(bad, "start").mockRejectedValue(new Error("no source"));
+            const goodStop = vi.spyOn(good, "stop");
+            const closeSpy = vi.spyOn(cloud.queue, "close");
+
+            await expect(cloud.start()).rejects.toThrow("no source");
+
+            expect(goodStop).toHaveBeenCalled();
+            expect(closeSpy).toHaveBeenCalled();
+        });
+    });
 });

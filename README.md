@@ -1,213 +1,119 @@
 # nStorm
 
-A simple real-time processing system inspired by [Storm](http://storm.incubator.apache.org/) and [SimpleStorm](https://www.npmjs.org/package/simplestorm).
+A simple real-time processing system for Node.js, inspired by [Storm](https://storm.apache.org/) and [SimpleStorm](https://www.npmjs.org/package/simplestorm).
+
+**[Documentation](https://thepipster.github.io/nStorm/)** · [Getting started](https://thepipster.github.io/nStorm/guide/getting-started) · [API reference](https://thepipster.github.io/nStorm/reference/nstorm) · [Upgrading from 4.0](https://thepipster.github.io/nStorm/guide/upgrading)
 
 ## Overview
 
-The motivation for this work is to enable the easy creation of processing blocks that can be chained together in flexibile ways, coupled with the ability to scale by adding additional servers (workers).
+nStorm lets you write small processing blocks and chain them together into a topology. Messages travel between blocks over a queue, so you can scale out by running the same topology on more servers.
 
-The high-level objectives are;
-
-1. Ability to create simple processing blocks that can be easily chained together (create topologies).
-2. Easily scale by adding new servers/workers, ideally automatically.
-3. Automatic replay of messages. If a process dies, then re-send message to another worker.
-4. Robust. This is achieved through using Node's [cluster](http://nodejs.org/api/cluster.html) module and running workers in child processes that are restarted upon failure.
-
-### Dependencies
-
-To enable simple cross-server communications and replay of messages I made use of Redis, which is used for both a message store and also a pub-sub mechanism.
+- **Small blocks, wired together.** A block is a class with a `start` method (a source), a `process` method (a processor), or both.
+- **Replay on failure.** A message whose block fails is delivered again, up to a limit you set.
+- **Scale by adding workers.** Every process running the same topology against the same Redis shares the work.
+- **Pluggable queues.** BullMQ for durability, a lightweight Redis list for throughput, or in-memory for tests.
+- **Graceful shutdown.** Stopping lets messages in progress finish. The library never takes over your process.
 
 ## Installation
 
-```ts
+```sh
 npm install nstorm
 ```
 
-## Usage
+Requires Node.js 20 or later. The default queue provider needs [Redis](https://redis.io/); the in-memory `async` provider does not.
 
-Include nStorm by
-
-```ts
-import { nStorm, BaseBolt } from
-```
-
-In Twitter Storm, you can create two types of blocks;
-
-1. *Spouts* are data sources, and must contain a start function that `emits` data.
-2. *bolts* Are chainable processing blocks, that must contain a process function.
-
-nStorm uses the same concept, except we only have one type of block and they can have a `process` *and* a `start` method, thereby allowing hybrid blocks.
-
-The `start` method can be used to emit data, i.e. a data source, or can be used for any initialization code a block needs.
-
-### Creating a Data source
-
-Data source blocks are fairly easy to create, using the `BaseBolt` base class. The only restriction is that the block must contain a `start()` function that returns a promise. To output any messages, call the `this.emit(data)`.
-
-The data you pass should be an Array or Object.
-
-The following block demonstrates a coin toss, it randomly 'emits' a head or a tails, and emits that as an object.
+## Example
 
 ```ts
-/**
- * Demo spout that randomly creates 'coins', either heads or tails
- */
+import { nStorm, BaseBolt, Logger } from "nstorm";
+
+// A source: emits a coin toss every second
 class CoinSpout extends BaseBolt {
+    private timer?: NodeJS.Timeout;
+
     async start(): Promise<void> {
-        const sendData = (): void => {
-            const test = Math.floor(Math.random() * 101);
-            const toss = test < 50 ? "heads" : "tails";
-            const row = { coin: toss, time: Date.now() };
+        this.timer = setInterval(() => {
+            const coin = Math.random() < 0.5 ? "heads" : "tails";
+            void this.emit({ coin, time: Date.now() });
+        }, 1000);
+    }
 
-            this.emit(row);
-
-            setTimeout(() => {
-                sendData();
-            }, 1000);
-        };
-
-        sendData();
+    async stop(): Promise<void> {
+        clearInterval(this.timer);
     }
 }
-```
 
-### Creating a Process Block
-
-Creating a processing block is also pretty straight forward, and also extends from the `BaseBolt` class. The only restriction is that they must contain a `process` function. This function is passed a message and a `done` function that is called when the message has been processed. The message will be whatever data was emitted by a block that this block is connected to. So for example, if this was listening to the spout we just created then the message would be the result of the coin toss.
-
-The block can also send data using the `this.emit()` function, which allows you to pass data to other blocks. 
-
-```ts
+// A processor: receives messages and acknowledges them
 class HeadsBolt extends BaseBolt {
     async process(
         message: Record<string, unknown>,
         done: (err?: Error | null) => void,
     ): Promise<void> {
-        Logger.info("Heads ", message.coin as string);
-
-        // Pass data along
-        this.emit(message);
-
-        // Acknowledge
+        Logger.info("Heads ", message.coin);
         done();
     }
 }
-```
-
-### Queue Providers
-
-The default implementation uses the awesome [kue](https://github.com/Automattic/kue) under the hood. This creates a very robust system, but with some performance trade-offs. If you have a relatively simple implenetation with small jobs, then you can use the in memory 'async' implementation (uses `async.queue`).
-
-Support for [featureless-job-queue](https://github.com/Neamar/featureless-job-queue) is coming soon.
-
-### Setting up a toplogy
-
-Once you have created your blocks, now you can wire them up!
-
-Here is an example based on the bolt and spout we just created
-
-```ts
-// Spout and Bolt implementation
-const coinTossSpout = new CoinSpout();
-const headsBolt = new HeadsBolt();
 
 const cloud = new nStorm({
-    debug: false,
-    redis: {
-        port: 6379,
-        host: "127.0.0.1",
-    },
+    redis: { host: "127.0.0.1", port: 6379 },
 });
 
-async function main(): Promise<void> {
-    // Setting up topology using the topology builder
-    cloud.addBlock("coinTossSpout", coinTossSpout);
-    cloud.addBlock("headsBolt", headsBolt).input("coinTossSpout");
+cloud.addBlock("coins", new CoinSpout());
+cloud.addBlock("heads", new HeadsBolt()).input("coins", {
+    filter: { coin: "heads" },
+});
 
-    // Setup cluster, and run topology...
-    await cloud.setupTopology();
-    await cloud.start();
-}
+cloud.start().catch((err) => Logger.error(err));
 
-main().catch((err) => Logger.error(err));
+// nStorm leaves process signals to you
+process.once("SIGTERM", () => {
+    cloud.stop().finally(() => process.exit(0));
+});
 ```
 
-### nStorm Options
+## Queue providers
 
-When you create a nStorm cloud using `var cloud = new nStorm(<options>);` you can pass in the following options;
+Choose one with the `queue` option.
 
-Option | Default | Description
---- | --- | ---
-cloudName | "stormcloud" | Specify the topology name, used if you plan to run more than one topology.
-queue | 'kue' | The queue engine to use, options are 'kue', 'async' and 'featureless'
-redis | {port: 6379, host: '127.0.0.1'} | Redis connection object
-debug | false | Turns on logging
-replayLimit | 3 | The number of times a message is replayed before its considered bad and deleted, i.e. if the same message causes an exception 3 times stop replaying the message!
-replayTime | 300 | Time (ms) between checking for failed messages
-(deprecated) reset | false | Deprecated, use `nStorm.reset()` instead. This gives you more control of how and when to reset.
+| Provider           | Needs Redis | Shared between processes | If a block fails on a message | If the process dies mid-message |
+| ------------------ | ----------- | ------------------------ | ----------------------------- | ------------------------------- |
+| `bullmq` (default) | Yes         | Yes                      | Replayed                      | Redelivered                     |
+| `simple`           | Yes         | Yes                      | Replayed                      | **Lost**                        |
+| `async`            | No          | No                       | Replayed                      | **Lost**, along with the queue  |
 
+## Documentation
 
-#### Parallelism
+The full documentation is at **<https://thepipster.github.io/nStorm/>**:
 
-By default, every time a block gets a message its processing method is called. However, you can restrict the number of instances *per worker* by specifying a limit, e.g.
+- [Writing blocks](https://thepipster.github.io/nStorm/guide/blocks) and [wiring them together](https://thepipster.github.io/nStorm/guide/topologies), including filters and parallelism
+- [Failures and replay](https://thepipster.github.io/nStorm/guide/failures)
+- [Shutting down](https://thepipster.github.io/nStorm/guide/shutdown)
+- [Queue providers](https://thepipster.github.io/nStorm/guide/queue-providers) and [scaling out](https://thepipster.github.io/nStorm/guide/scaling)
+- [All options](https://thepipster.github.io/nStorm/reference/options)
+- [Upgrading from 4.0](https://thepipster.github.io/nStorm/guide/upgrading), which lists the breaking changes in version 5
 
-```ts
-builder.addBlock("headsBolt", headsBolt, 2).input("coinTossSpout");
+## Development
+
+```sh
+npm test                  # run the tests (no Redis needed)
+npm run check             # formatting, lint, typecheck and tests
+npm run build             # compile to dist/
+npm run docs:dev          # preview the documentation site locally
+npx tsx example/test.ts   # in-memory example
+npm run example           # BullMQ example, needs Redis on 127.0.0.1:6379
 ```
 
-Here a maximum of 2 instances of the headsBolt will run. Any messages sent to that block will be buffered (using redis) until the block is ready.
+The documentation site is built from [`docs/`](docs/) and published to GitHub Pages when `master` changes.
 
-Note, for this to work you must call `context.ack(message)` so nStorm knows you've finished processing the message.
+## Contributing
 
-#### Chaining inputs
-
-Inputs can be chained, e.g.;
-
-```ts
-builder.addBlock("resultsBolt", resultsBolt, 1).input("tailsBolt").input("headsBolt");
-```
-
-So, here a 'resultsBot' is getting inputs from both a `tailsBolt` and a `headsBolt`.
-
-#### Filtering
-
-Inputs can be filted on a specific key and value, e.g
-
-```ts
-builder.addBlock("headsBolt", headsBolt, 1).input("coinTossSpout", {coin: "heads"});
-```
-
-Here the 'headsBolt' will reject any messages that do not have a "coin" key which equals "heads", i.e. it only accepts coin tosses of heads!
-
-### Adding remote workers
-
-This is in the works, but because the system is built on top of redis this should be basically already possible......
-
-### Monitoring
-
-A web based graphical monitor is in the works, and coming soon. Feel free to bug me if you'd like to see an early version.
-
-## Suggestions
-
-Feel free to contact me at mike@arsenicsoup.com if you want to help or have suggestions.
-
-## Contribution
-
-Contributions are welcome!
-
-Please feel free to [file issues](https://github.com/thepipster/nStorm/issues) and submit [pull requests](https://github.com/thepipster/nStorm/pulls).
-
-## Donate
-
-If you like this, and use it, please consider donating to help support future development.
-
-<a class="coinbase-button" data-code="1f955f58582ddd191e84a8bb8fcd7a77" data-button-style="donation_small" href="https://coinbase.com/checkouts/1f955f58582ddd191e84a8bb8fcd7a77">Donate Bitcoins</a><script src="https://coinbase.com/assets/button.js" type="text/javascript"></script>
+Contributions are welcome. Please [file issues](https://github.com/thepipster/nStorm/issues) and submit [pull requests](https://github.com/thepipster/nStorm/pulls), or contact me at mike@arsenicsoup.com.
 
 ## License
 
 The MIT License (MIT)
 
-Copyright (c) <year> <copyright holders>
+Copyright (c) 2014 Mike Pritchard
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
